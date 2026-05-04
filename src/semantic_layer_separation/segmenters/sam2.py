@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import torch
 from PIL import Image
 
 try:
@@ -29,6 +30,11 @@ except ImportError:  # pragma: no cover - optional dependency
 class SegmentationMask:
     label: str
     mask: np.ndarray
+
+
+def _get_device() -> str:
+    """Get the device (cuda or cpu) based on availability."""
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class SAM2Segmenter:
@@ -90,9 +96,11 @@ class SAM2Segmenter:
             OmegaConf.resolve(cfg)
             model = instantiate(cfg.model, _recursive_=True)
             _load_checkpoint(model, checkpoint_path)
-            return model.to("cpu")
+            device = _get_device()
+            return model.to(device)
 
-        return build_sam2(model_config, checkpoint_path, device="cuda")
+        device = _get_device()
+        return build_sam2(model_config, checkpoint_path, device=device)
 
     def segment(self, image_path: Path, boxes: list[tuple[str, tuple[int, int, int, int]]]) -> list[SegmentationMask]:
         image = np.array(Image.open(image_path).convert("RGB"))

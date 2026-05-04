@@ -19,12 +19,18 @@ class GroundingDINODetector:
     def __init__(self, model_name: str) -> None:
         self._processor = AutoProcessor.from_pretrained(model_name)
         self._model = GroundingDinoForObjectDetection.from_pretrained(model_name)
+        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._model = self._model.to(self._device)
         self._model.eval()
 
     def detect(self, image_path: Path, targets: list[str], threshold: float = 0.35, text_threshold: float = 0.25) -> list[BoundingBox]:
         image = Image.open(image_path).convert("RGB")
         caption = ". ".join(targets)
         inputs = self._processor(images=image, text=caption, return_tensors="pt")
+        if hasattr(inputs, 'to'):
+            inputs = inputs.to(self._device)
+        else:
+            inputs = {k: v.to(self._device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self._model(**inputs)
