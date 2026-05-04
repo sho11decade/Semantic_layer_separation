@@ -1,0 +1,2 @@
+# Semantic_layer_separation
+マルチモーダルAIによるセマンティック・レイヤー分離 MVP
