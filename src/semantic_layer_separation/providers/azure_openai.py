@@ -22,11 +22,24 @@ class PlanningResult:
 
 
 class AzureOpenAIPlanner:
-    def __init__(self, *, api_key: str, endpoint: str, api_version: str, deployment: str) -> None:
+    def __init__(self, *, api_key: str, endpoint: str, api_version: str, deployment: str, use_cache: bool = True) -> None:
         self._client = AzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
         self._deployment = deployment
+        self.use_cache = use_cache
+        
+        if use_cache:
+            from semantic_layer_separation.cache import CacheManager
+            self._cache = CacheManager()
+        else:
+            self._cache = None
 
     def plan(self, *, image_path: Path | None = None, prompt: str | None = None) -> PlanningResult:
+        # Check cache first
+        if self._cache and image_path:
+            cached = self._cache.get_planning_result(image_path, prompt or "")
+            if cached:
+                return PlanningResult(targets=cached["targets"], raw_text=cached["raw_text"])
+        
         messages: list[dict[str, object]] = [
             {
                 "role": "system",
@@ -60,6 +73,11 @@ class AzureOpenAIPlanner:
         )
         raw_text = response.choices[0].message.content or ""
         targets = self._extract_targets(raw_text)
+        
+        # Cache result
+        if self._cache and image_path:
+            self._cache.set_planning_result(image_path, prompt or "", {"targets": targets, "raw_text": raw_text})
+        
         return PlanningResult(targets=targets, raw_text=raw_text)
 
     @staticmethod

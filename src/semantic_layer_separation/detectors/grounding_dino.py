@@ -16,14 +16,30 @@ class BoundingBox:
 
 
 class GroundingDINODetector:
-    def __init__(self, model_name: str) -> None:
+    def __init__(self, model_name: str, use_cache: bool = True) -> None:
         self._processor = AutoProcessor.from_pretrained(model_name)
         self._model = GroundingDinoForObjectDetection.from_pretrained(model_name)
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
         self._model = self._model.to(self._device)
         self._model.eval()
+        self.use_cache = use_cache
+        
+        if use_cache:
+            from semantic_layer_separation.cache import CacheManager
+            self._cache = CacheManager()
+        else:
+            self._cache = None
 
     def detect(self, image_path: Path, targets: list[str], threshold: float = 0.35, text_threshold: float = 0.25) -> list[BoundingBox]:
+        # Check cache first
+        if self._cache:
+            cached = self._cache.get_detection_result(image_path, targets)
+            if cached:
+                return [
+                    BoundingBox(label=b["label"], score=b["score"], box=tuple(b["box"]))
+                    for b in cached
+                ]
+        
         image = Image.open(image_path).convert("RGB")
         caption = ". ".join(targets)
         inputs = self._processor(images=image, text=caption, return_tensors="pt")
@@ -55,4 +71,13 @@ class GroundingDINODetector:
                         box=(x0, y0, x1, y1),
                     )
                 )
+        
+        # Cache result
+        if self._cache:
+            self._cache.set_detection_result(
+                image_path,
+                targets,
+                [{"label": b.label, "score": b.score, "box": list(b.box)} for b in boxes]
+            )
+        
         return boxes
