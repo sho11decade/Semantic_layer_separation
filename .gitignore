@@ -220,3 +220,5 @@ __marimo__/
 .vsocde/
 timg/
 outputs/
+models/
+externals/

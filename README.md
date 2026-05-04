@@ -51,3 +51,4 @@ sls --image path/to/image.png
   pip install git+https://github.com/facebookresearch/segment-anything-2.git
   ```
   その後、`.env` に `SAM2_CHECKPOINT` と `SAM2_MODEL_CONFIG` を設定
+- **パスは実在ファイルを指す必要あり**: たとえば `SAM2_MODEL_CONFIG=./sam2/configs/models/sam2.1_hiera_l.yaml` は、リポジトリ直下に `sam2/` を clone している場合のみ有効です。存在しないパスを入れると、SAM 2 初期化は失敗し、矩形マスクにフォールバックします。

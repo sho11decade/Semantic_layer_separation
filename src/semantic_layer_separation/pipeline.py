@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 
 from semantic_layer_separation.config import Settings
 
@@ -32,11 +33,7 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
     detector = GroundingDINODetector(settings.grounding_dino_model)
     boxes = detector.detect(image_path, planning.targets)
 
-    segmenter = None
-    if settings.sam2_checkpoint and settings.sam2_model_config:
-        segmenter = SAM2Segmenter(checkpoint=settings.sam2_checkpoint, model_config=settings.sam2_model_config)
-    else:
-        segmenter = SimpleBoxSegmenter()
+    segmenter = _build_segmenter(settings, SAM2Segmenter, SimpleBoxSegmenter)
 
     masks = segmenter.segment(image_path, [(box.label, box.box) for box in boxes])
     
@@ -63,3 +60,17 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
     save_metadata(layers_info, output_dir)
 
     return PipelineResult(targets=planning.targets, boxes=boxes, output_dir=output_dir)
+
+
+def _build_segmenter(settings: Settings, sam2_segmenter_cls, simple_box_segmenter_cls):
+    if not settings.sam2_checkpoint or not settings.sam2_model_config:
+        return simple_box_segmenter_cls()
+
+    try:
+        return sam2_segmenter_cls(checkpoint=settings.sam2_checkpoint, model_config=settings.sam2_model_config)
+    except Exception as exc:  # pragma: no cover - runtime fallback for optional SAM2 setup
+        print(
+            f"[semantic-layer-separation] SAM 2 initialization failed, falling back to rectangular masks: {exc}",
+            file=sys.stderr,
+        )
+        return simple_box_segmenter_cls()
