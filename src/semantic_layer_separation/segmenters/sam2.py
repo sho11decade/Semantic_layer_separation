@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
-import os
-import re
 
 import numpy as np
 from PIL import Image
@@ -14,6 +10,7 @@ try:
     from sam2.build_sam import build_sam2
     from sam2.build_sam import _load_checkpoint
     from sam2.sam2_image_predictor import SAM2ImagePredictor
+    from hydra.core.global_hydra import GlobalHydra
     from hydra import compose, initialize_config_dir
     from hydra.utils import instantiate
     from omegaconf import OmegaConf
@@ -21,6 +18,7 @@ except ImportError:  # pragma: no cover - optional dependency
     build_sam2 = None
     _load_checkpoint = None
     SAM2ImagePredictor = None
+    GlobalHydra = None
     compose = None
     initialize_config_dir = None
     instantiate = None
@@ -74,8 +72,11 @@ class SAM2Segmenter:
         config_path = Path(model_config).expanduser()
         if config_path.suffix in {".yaml", ".yml"} or config_path.exists():
             config_dir, config_name = cls._split_config_path(config_path)
-            if initialize_config_dir is None or compose is None or instantiate is None or OmegaConf is None or _load_checkpoint is None:
+            if initialize_config_dir is None or compose is None or instantiate is None or OmegaConf is None or _load_checkpoint is None or GlobalHydra is None:
                 raise RuntimeError("SAM2 Hydra dependencies are not available")
+
+            if GlobalHydra.instance().is_initialized():
+                GlobalHydra.instance().clear()
 
             with initialize_config_dir(version_base=None, config_dir=str(config_dir)):
                 cfg = compose(
@@ -91,7 +92,7 @@ class SAM2Segmenter:
             _load_checkpoint(model, checkpoint_path)
             return model.to("cpu")
 
-        return build_sam2(model_config, checkpoint_path, device="cpu")
+        return build_sam2(model_config, checkpoint_path, device="cuda")
 
     def segment(self, image_path: Path, boxes: list[tuple[str, tuple[int, int, int, int]]]) -> list[SegmentationMask]:
         image = np.array(Image.open(image_path).convert("RGB"))

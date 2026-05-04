@@ -222,3 +222,5 @@ timg/
 outputs/
 models/
 externals/
+sam2.1_hiera_l.yaml
+sam2.1_hiera_large.pt

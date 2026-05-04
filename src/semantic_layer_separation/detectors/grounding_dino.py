@@ -35,10 +35,12 @@ class GroundingDINODetector:
             threshold=threshold,
             text_threshold=text_threshold,
             target_sizes=[image.size[::-1]],
+            text_labels=[targets],
         )
         boxes: list[BoundingBox] = []
         for result in results:
-            for box, score, label in zip(result["boxes"], result["scores"], result["labels"]):
+            labels = result.get("text_labels", result.get("labels", []))
+            for box, score, label in zip(result["boxes"], result["scores"], labels):
                 x0, y0, x1, y1 = [int(value) for value in box.tolist()]
                 boxes.append(
                     BoundingBox(
