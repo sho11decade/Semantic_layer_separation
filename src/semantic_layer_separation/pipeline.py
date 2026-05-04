@@ -15,9 +15,9 @@ class PipelineResult:
 
 def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = None) -> PipelineResult:
     from semantic_layer_separation.detectors.grounding_dino import BoundingBox, GroundingDINODetector
-    from semantic_layer_separation.exporters.image_export import ensure_output_dir, save_cutout, save_mask, save_overlay
+    from semantic_layer_separation.exporters.image_export import ensure_output_dir, sanitize_label, save_cutout, save_mask, save_metadata, save_overlay
     from semantic_layer_separation.providers.azure_openai import AzureOpenAIPlanner
-    from semantic_layer_separation.segmenters.sam2 import SAM2Segmenter
+    from semantic_layer_separation.segmenters.sam2 import SAM2Segmenter, SimpleBoxSegmenter
 
     output_dir = ensure_output_dir(settings.output_dir)
 
@@ -32,12 +32,34 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
     detector = GroundingDINODetector(settings.grounding_dino_model)
     boxes = detector.detect(image_path, planning.targets)
 
+    segmenter = None
     if settings.sam2_checkpoint and settings.sam2_model_config:
         segmenter = SAM2Segmenter(checkpoint=settings.sam2_checkpoint, model_config=settings.sam2_model_config)
-        masks = segmenter.segment(image_path, [(box.label, box.box) for box in boxes])
-        for index, mask in enumerate(masks, start=1):
-            save_mask(mask.mask, output_dir / f"{index:02d}_{mask.label}_mask.png")
-            save_cutout(image_path, mask.mask, output_dir / f"{index:02d}_{mask.label}_cutout.png")
-            save_overlay(image_path, mask.mask, output_dir / f"{index:02d}_{mask.label}_overlay.png")
+    else:
+        segmenter = SimpleBoxSegmenter()
+
+    masks = segmenter.segment(image_path, [(box.label, box.box) for box in boxes])
+    
+    layers_info = []
+    for index, mask in enumerate(masks, start=1):
+        clean_label = sanitize_label(mask.label)
+        mask_path = output_dir / f"{index:02d}_{clean_label}_mask.png"
+        cutout_path = output_dir / f"{index:02d}_{clean_label}_cutout.png"
+        overlay_path = output_dir / f"{index:02d}_{clean_label}_overlay.png"
+        
+        save_mask(mask.mask, mask_path)
+        save_cutout(image_path, mask.mask, cutout_path)
+        save_overlay(image_path, mask.mask, overlay_path)
+        
+        layers_info.append({
+            "index": index,
+            "label": mask.label,
+            "clean_label": clean_label,
+            "mask_file": mask_path.name,
+            "cutout_file": cutout_path.name,
+            "overlay_file": overlay_path.name,
+        })
+    
+    save_metadata(layers_info, output_dir)
 
     return PipelineResult(targets=planning.targets, boxes=boxes, output_dir=output_dir)

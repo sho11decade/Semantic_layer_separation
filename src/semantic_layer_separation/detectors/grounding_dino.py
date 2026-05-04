@@ -21,7 +21,7 @@ class GroundingDINODetector:
         self._model = GroundingDinoForObjectDetection.from_pretrained(model_name)
         self._model.eval()
 
-    def detect(self, image_path: Path, targets: list[str], box_threshold: float = 0.35, text_threshold: float = 0.25) -> list[BoundingBox]:
+    def detect(self, image_path: Path, targets: list[str], threshold: float = 0.35, text_threshold: float = 0.25) -> list[BoundingBox]:
         image = Image.open(image_path).convert("RGB")
         caption = ". ".join(targets)
         inputs = self._processor(images=image, text=caption, return_tensors="pt")
@@ -32,7 +32,7 @@ class GroundingDINODetector:
         results = self._processor.post_process_grounded_object_detection(
             outputs,
             inputs.input_ids,
-            box_threshold=box_threshold,
+            threshold=threshold,
             text_threshold=text_threshold,
             target_sizes=[image.size[::-1]],
         )
