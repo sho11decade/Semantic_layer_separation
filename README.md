@@ -12,7 +12,35 @@
 3. **SAM 2 (or SimpleBox)**: BBox からマスクを生成（SAM 2 未設定時は矩形マスク）
 4. **PNG 出力**: 各レイヤーの mask、cutout、overlay を保存、`layers.json` で追跡
 
+## プロジェクト構成
+
+```text
+Semantic_layer_separation/
+├─ src/
+│  └─ semantic_layer_separation/
+│     ├─ cli.py                  # CLI エントリポイント（sls）
+│     ├─ pipeline.py             # 単体/バッチ処理の主フロー
+│     ├─ config.py               # 環境変数・設定ロード
+│     ├─ validators.py           # 設定バリデーション
+│     ├─ errors.py               # 例外定義
+│     ├─ logging_config.py       # ログ設定
+│     ├─ providers/
+│     │  └─ azure_openai.py      # レイヤー候補生成
+│     ├─ detectors/
+│     │  └─ grounding_dino.py    # BBox 検出
+│     ├─ segmenters/
+│     │  └─ sam2.py              # SAM 2 / 矩形マスク
+│     └─ exporters/
+│        ├─ image_export.py      # mask/cutout/overlay 保存
+│        └─ archive_export.py    # アーカイブ出力
+├─ models/                       # SAM 2 モデル関連ファイル
+├─ requirements.txt              # 依存関係（pip）
+└─ pyproject.toml                # パッケージ設定
+```
+
 ## 実行方法
+
+### macOS / Linux
 
 ```bash
 # インストール
@@ -24,6 +52,22 @@ cp .env.example .env
 
 # 実行
 sls --image path/to/image.png
+```
+
+### Windows (PowerShell)
+
+```powershell
+# インストール
+python -m pip install -e .
+
+# 設定
+Copy-Item .env.example .env
+# .env を編集: AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT を設定
+
+# 実行（PowerShell の `sls` エイリアス衝突を回避）
+semantic-layer-separation --image .\path\to\image.png
+# または
+python -m semantic_layer_separation.cli --image .\path\to\image.png
 ```
 
 ## 出力ファイル

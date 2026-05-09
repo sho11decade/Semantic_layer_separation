@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 sls = "semantic_layer_separation.cli:main"
+semantic-layer-separation = "semantic_layer_separation.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
