@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import sys
+
+import numpy as np
+from PIL import Image
 from tqdm import tqdm
 
 from semantic_layer_separation.config import Settings
@@ -20,7 +23,7 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
     from semantic_layer_separation.detectors.grounding_dino import BoundingBox, GroundingDINODetector
     from semantic_layer_separation.exporters.image_export import ensure_output_dir, sanitize_label, save_cutout, save_mask, save_metadata, save_overlay
     from semantic_layer_separation.providers.azure_openai import AzureOpenAIPlanner
-    from semantic_layer_separation.segmenters.sam2 import SAM2Segmenter, SimpleBoxSegmenter
+    from semantic_layer_separation.segmenters.sam2 import SAM2Segmenter, SegmentationMask, SimpleBoxSegmenter
 
     if output_subdir:
         output_dir = ensure_output_dir(Path(settings.output_dir) / output_subdir)
@@ -61,6 +64,15 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
         masks = segmenter.segment(image_path, [(box.label, box.box) for box in boxes])
     except Exception as exc:
         raise ProcessingError(f"Segmentation failed: {exc}") from exc
+
+    if settings.background_residual_enabled:
+        masks = _append_residual_background_mask(
+            image_path=image_path,
+            masks=masks,
+            min_area_ratio=settings.background_residual_min_area_ratio,
+            label=settings.background_residual_label,
+            segmentation_mask_cls=SegmentationMask,
+        )
     
     layers_info = []
     for index, mask in tqdm(enumerate(masks, start=1), total=len(masks), desc="Processing layers"):
@@ -85,6 +97,31 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
     save_metadata(layers_info, output_dir)
 
     return PipelineResult(targets=planning.targets, boxes=boxes, output_dir=output_dir)
+
+
+def _append_residual_background_mask(*, image_path: Path, masks: list, min_area_ratio: float, label: str, segmentation_mask_cls) -> list:
+    with Image.open(image_path).convert("RGB") as source_image:
+        width, height = source_image.size
+    if width <= 0 or height <= 0:
+        return masks
+
+    uncovered = np.ones((height, width), dtype=bool)
+    for mask_item in masks:
+        mask_array = np.asarray(mask_item.mask, dtype=bool)
+        if mask_array.shape != uncovered.shape:
+            print(
+                f"[semantic-layer-separation] Skipping mask with unexpected shape: {mask_array.shape} (expected {uncovered.shape})",
+                file=sys.stderr,
+            )
+            continue
+        uncovered &= ~mask_array
+
+    residual_ratio = float(uncovered.sum() / uncovered.size)
+    if residual_ratio < min_area_ratio:
+        return masks
+
+    residual_label = label.strip() or "background"
+    return [*masks, segmentation_mask_cls(label=residual_label, mask=uncovered)]
 
 
 def _build_segmenter(settings: Settings, sam2_segmenter_cls, simple_box_segmenter_cls):

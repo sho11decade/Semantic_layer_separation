@@ -48,6 +48,12 @@ def validate_config(settings) -> Tuple[bool, list[str]]:
             f"max_per_label={settings.detection_max_per_label}"
         )
         messages.append(f"✅ Planning max targets: {settings.planning_max_targets}")
+        messages.append(
+            "✅ Background residual: "
+            f"enabled={settings.background_residual_enabled}, "
+            f"min_area_ratio={settings.background_residual_min_area_ratio}, "
+            f"label={settings.background_residual_label}"
+        )
         try:
             from transformers import AutoProcessor, GroundingDinoForObjectDetection
             messages.append("  → Loading model (this may take a while)...")
