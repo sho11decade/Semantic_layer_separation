@@ -34,13 +34,24 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
             api_version=settings.azure_openai_api_version,
             deployment=settings.azure_openai_deployment,
         )
-        planning = planner.plan(image_path=image_path, prompt=prompt)
+        planning = planner.plan(
+            image_path=image_path,
+            prompt=prompt,
+            max_targets=settings.planning_max_targets,
+        )
     except Exception as exc:
         raise ModelError(f"Azure OpenAI planning failed: {exc}") from exc
 
     try:
         detector = GroundingDINODetector(settings.grounding_dino_model)
-        boxes = detector.detect(image_path, planning.targets)
+        boxes = detector.detect(
+            image_path,
+            planning.targets,
+            threshold=settings.detection_box_threshold,
+            text_threshold=settings.detection_text_threshold,
+            nms_iou_threshold=settings.detection_nms_iou_threshold,
+            max_per_label=settings.detection_max_per_label,
+        )
     except Exception as exc:
         raise ModelError(f"Grounding DINO detection failed: {exc}") from exc
 

@@ -40,6 +40,14 @@ def validate_config(settings) -> Tuple[bool, list[str]]:
         messages.append("❌ Grounding DINO model not specified")
     else:
         messages.append(f"✅ Grounding DINO model: {settings.grounding_dino_model}")
+        messages.append(
+            "✅ Detection params: "
+            f"box={settings.detection_box_threshold}, "
+            f"text={settings.detection_text_threshold}, "
+            f"nms_iou={settings.detection_nms_iou_threshold}, "
+            f"max_per_label={settings.detection_max_per_label}"
+        )
+        messages.append(f"✅ Planning max targets: {settings.planning_max_targets}")
         try:
             from transformers import AutoProcessor, GroundingDinoForObjectDetection
             messages.append("  → Loading model (this may take a while)...")

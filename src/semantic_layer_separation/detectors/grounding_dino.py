@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,10 +32,104 @@ class GroundingDINODetector:
         else:
             self._cache = None
 
-    def detect(self, image_path: Path, targets: list[str], threshold: float = 0.35, text_threshold: float = 0.25) -> list[BoundingBox]:
+    @staticmethod
+    def _canonical_label(label: str) -> str:
+        return re.sub(r"\s+", " ", label.replace("_", " ").strip().lower())
+
+    @staticmethod
+    def _clamp_box(box: tuple[int, int, int, int], width: int, height: int) -> tuple[int, int, int, int] | None:
+        x0, y0, x1, y1 = box
+        x0 = max(0, min(width, x0))
+        y0 = max(0, min(height, y0))
+        x1 = max(0, min(width, x1))
+        y1 = max(0, min(height, y1))
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return x0, y0, x1, y1
+
+    @staticmethod
+    def _iou(box_a: tuple[int, int, int, int], box_b: tuple[int, int, int, int]) -> float:
+        ax0, ay0, ax1, ay1 = box_a
+        bx0, by0, bx1, by1 = box_b
+
+        inter_x0 = max(ax0, bx0)
+        inter_y0 = max(ay0, by0)
+        inter_x1 = min(ax1, bx1)
+        inter_y1 = min(ay1, by1)
+
+        inter_w = max(0, inter_x1 - inter_x0)
+        inter_h = max(0, inter_y1 - inter_y0)
+        inter_area = inter_w * inter_h
+        if inter_area == 0:
+            return 0.0
+
+        area_a = (ax1 - ax0) * (ay1 - ay0)
+        area_b = (bx1 - bx0) * (by1 - by0)
+        union_area = area_a + area_b - inter_area
+        if union_area <= 0:
+            return 0.0
+        return inter_area / union_area
+
+    def _nms(self, boxes: list[BoundingBox], iou_threshold: float) -> list[BoundingBox]:
+        ordered = sorted(boxes, key=lambda b: b.score, reverse=True)
+        selected: list[BoundingBox] = []
+        for candidate in ordered:
+            if all(self._iou(candidate.box, keep.box) < iou_threshold for keep in selected):
+                selected.append(candidate)
+        return selected
+
+    def _post_process_boxes(
+        self,
+        boxes: list[BoundingBox],
+        targets: list[str],
+        width: int,
+        height: int,
+        nms_iou_threshold: float,
+        max_per_label: int,
+    ) -> list[BoundingBox]:
+        target_rank = {self._canonical_label(target): idx for idx, target in enumerate(targets)}
+        grouped: dict[str, list[BoundingBox]] = defaultdict(list)
+
+        for box in boxes:
+            clamped = self._clamp_box(box.box, width, height)
+            if clamped is None:
+                continue
+            canonical = self._canonical_label(box.label)
+            if not canonical:
+                continue
+            grouped[canonical].append(BoundingBox(label=box.label.strip(), score=box.score, box=clamped))
+
+        filtered: list[BoundingBox] = []
+        for label_group in grouped.values():
+            kept = self._nms(label_group, nms_iou_threshold)
+            if max_per_label > 0:
+                kept = kept[:max_per_label]
+            filtered.extend(kept)
+
+        return sorted(
+            filtered,
+            key=lambda b: (target_rank.get(self._canonical_label(b.label), len(target_rank)), -b.score),
+        )
+
+    def detect(
+        self,
+        image_path: Path,
+        targets: list[str],
+        threshold: float = 0.35,
+        text_threshold: float = 0.25,
+        nms_iou_threshold: float = 0.5,
+        max_per_label: int = 1,
+    ) -> list[BoundingBox]:
+        cache_targets = [
+            *targets,
+            f"__box:{threshold:.4f}",
+            f"__text:{text_threshold:.4f}",
+            f"__nms:{nms_iou_threshold:.4f}",
+            f"__max:{max_per_label}",
+        ]
         # Check cache first
         if self._cache:
-            cached = self._cache.get_detection_result(image_path, targets)
+            cached = self._cache.get_detection_result(image_path, cache_targets)
             if cached:
                 return [
                     BoundingBox(label=b["label"], score=b["score"], box=tuple(b["box"]))
@@ -41,7 +137,7 @@ class GroundingDINODetector:
                 ]
         
         image = Image.open(image_path).convert("RGB")
-        caption = ". ".join(targets)
+        caption = ". ".join(target.replace("_", " ") for target in targets)
         inputs = self._processor(images=image, text=caption, return_tensors="pt")
         if hasattr(inputs, 'to'):
             inputs = inputs.to(self._device)
@@ -71,12 +167,21 @@ class GroundingDINODetector:
                         box=(x0, y0, x1, y1),
                     )
                 )
+
+        boxes = self._post_process_boxes(
+            boxes,
+            targets,
+            width=image.width,
+            height=image.height,
+            nms_iou_threshold=nms_iou_threshold,
+            max_per_label=max_per_label,
+        )
         
         # Cache result
         if self._cache:
             self._cache.set_detection_result(
                 image_path,
-                targets,
+                cache_targets,
                 [{"label": b.label, "score": b.score, "box": list(b.box)} for b in boxes]
             )
         

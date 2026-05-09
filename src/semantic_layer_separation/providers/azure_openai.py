@@ -33,7 +33,7 @@ class AzureOpenAIPlanner:
         else:
             self._cache = None
 
-    def plan(self, *, image_path: Path | None = None, prompt: str | None = None) -> PlanningResult:
+    def plan(self, *, image_path: Path | None = None, prompt: str | None = None, max_targets: int | None = None) -> PlanningResult:
         # Check cache first
         if self._cache and image_path:
             cached = self._cache.get_planning_result(image_path, prompt or "")
@@ -73,6 +73,8 @@ class AzureOpenAIPlanner:
         )
         raw_text = response.choices[0].message.content or ""
         targets = self._extract_targets(raw_text)
+        if max_targets is not None and max_targets > 0:
+            targets = targets[:max_targets]
         
         # Cache result
         if self._cache and image_path:
@@ -95,4 +97,16 @@ class AzureOpenAIPlanner:
         targets = payload.get("targets", []) if isinstance(payload, dict) else []
         if not isinstance(targets, list):
             return []
-        return [str(target).strip() for target in targets if str(target).strip()]
+
+        deduped_targets: list[str] = []
+        seen: set[str] = set()
+        for target in targets:
+            cleaned = str(target).strip()
+            if not cleaned:
+                continue
+            canonical = " ".join(cleaned.replace("_", " ").lower().split())
+            if not canonical or canonical in seen:
+                continue
+            seen.add(canonical)
+            deduped_targets.append(cleaned)
+        return deduped_targets

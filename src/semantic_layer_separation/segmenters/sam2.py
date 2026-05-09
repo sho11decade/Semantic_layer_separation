@@ -108,8 +108,14 @@ class SAM2Segmenter:
 
         results: list[SegmentationMask] = []
         for label, box in boxes:
-            masks, _, _ = self._predictor.predict(box=np.array(box, dtype=np.float32), multimask_output=False)
-            results.append(SegmentationMask(label=label, mask=masks[0].astype(bool)))
+            masks, scores, _ = self._predictor.predict(
+                box=np.array(box, dtype=np.float32),
+                multimask_output=True,
+            )
+            if len(masks) == 0:
+                continue
+            best_index = int(np.argmax(scores)) if scores is not None and len(scores) == len(masks) else 0
+            results.append(SegmentationMask(label=label, mask=masks[best_index].astype(bool)))
         return results
 
 
