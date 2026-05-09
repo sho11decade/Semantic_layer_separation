@@ -70,6 +70,28 @@ semantic-layer-separation --image .\path\to\image.png
 python -m semantic_layer_separation.cli --image .\path\to\image.png
 ```
 
+## レイヤービューア（Streamlit）
+
+```bash
+# 依存を反映
+python -m pip install -e .
+
+# ビューア起動
+semantic-layer-viewer
+```
+
+ビューアは2モードをサポートします。
+
+- **Open output directory**: 既存の `outputs/`（またはその配下）を読み込み
+- **Upload image and run**: 画像をアップロードしてパイプライン実行後、結果を即時表示
+
+主なUI操作:
+
+- レイヤーの表示ON/OFF
+- アクティブレイヤー選択
+- 表示モード切替（Original / Composite / Mask / Cutout / Overlay）
+- Composite不透明度調整
+
 ## 出力ファイル
 
 各層に対して以下の 3 ファイルが生成されます：
@@ -79,6 +101,15 @@ python -m semantic_layer_separation.cli --image .\path\to\image.png
 - `NN_label_overlay.png`: 元画像に赤色でハイライト（RGBA PNG）
 
 加えて、`layers.json` でメタデータ（元ラベル、サニタイズ後ラベル、ファイル名対応）を記録します。
+
+`layers.json` の各レイヤーは次のキーを前提にします:
+
+- `index`
+- `label`
+- `clean_label`
+- `mask_file`
+- `cutout_file`
+- `overlay_file`
 
 ## 依存関係
 

@@ -19,11 +19,13 @@ dependencies = [
   "torch>=2.3.0",
   "torchvision>=0.18.0",
   "transformers>=4.43.0",
+  "streamlit>=1.38.0",
 ]
 
 [project.scripts]
 sls = "semantic_layer_separation.cli:main"
 semantic-layer-separation = "semantic_layer_separation.cli:main"
+semantic-layer-viewer = "semantic_layer_separation.viewer_cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
