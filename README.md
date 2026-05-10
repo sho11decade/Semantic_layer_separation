@@ -5,6 +5,10 @@
 
 このリポジトリは、Azure OpenAI でレイヤー候補を抽出し、Grounding DINO で Box を推定し、SAM 2（またはシンプルなボックスマスク）でマスクを生成して PNG として書き出す研究用 MVP です。
 
+## 技術ドキュメント
+
+- [Technical Architecture](docs/technical-architecture.md)
+
 ## パイプライン
 
 1. **Azure OpenAI (GPT-5.4)**: 画像から論理的なセマンティック要素を抽出
