@@ -16,6 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument("--image", type=Path, help="Input image path (single image)")
     group.add_argument("--image-dir", type=Path, help="Input directory with images (batch processing)")
+    group.add_argument("--benchmark-dir", type=Path, help="Input directory with images (benchmark mode)")
+    parser.add_argument("--benchmark-report", type=Path, default=None, help="Path to benchmark JSON report")
     
     parser.add_argument("--prompt", default=None, help="Optional custom planning prompt")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Logging level")
@@ -44,13 +46,13 @@ def main() -> int:
         is_valid = print_validation_report(settings)
         return 0 if is_valid else 1
     
-    # Check that either --image or --image-dir is provided
-    if not args.image and not args.image_dir:
-        logger.error("Either --image or --image-dir must be specified")
-        print("Error: Either --image or --image-dir must be specified")
+    # Check that one processing mode is provided
+    if not args.image and not args.image_dir and not args.benchmark_dir:
+        logger.error("Either --image, --image-dir or --benchmark-dir must be specified")
+        print("Error: Either --image, --image-dir or --benchmark-dir must be specified")
         return 1
     
-    from semantic_layer_separation.pipeline import run_pipeline, run_batch_pipeline
+    from semantic_layer_separation.pipeline import run_pipeline, run_batch_pipeline, run_benchmark_pipeline
     
     if args.image:
         # Single image mode
@@ -76,7 +78,7 @@ def main() -> int:
                 indent=2,
             )
         )
-    else:
+    elif args.image_dir:
         # Batch mode
         logger.info(f"Processing batch from directory: {args.image_dir}")
         results = run_batch_pipeline(image_dir=args.image_dir, settings=settings, prompt=args.prompt)
@@ -101,6 +103,21 @@ def main() -> int:
                 indent=2,
             )
         )
+    else:
+        # Benchmark mode
+        logger.info(f"Running benchmark for directory: {args.benchmark_dir}")
+        report_path = args.benchmark_report or (Path(settings.output_dir) / "benchmark_report.json")
+        report = run_benchmark_pipeline(
+            image_dir=args.benchmark_dir,
+            settings=settings,
+            prompt=args.prompt,
+            output_report_path=report_path,
+        )
+        logger.info(
+            "Benchmark completed: "
+            f"{report['summary']['successful_images']} success / {report['summary']['total_images']} total"
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
 

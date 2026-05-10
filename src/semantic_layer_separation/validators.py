@@ -54,6 +54,16 @@ def validate_config(settings) -> Tuple[bool, list[str]]:
             f"min_area_ratio={settings.background_residual_min_area_ratio}, "
             f"label={settings.background_residual_label}"
         )
+        messages.append(
+            "✅ Drawing completion: "
+            f"enabled={settings.drawing_completion_enabled}, "
+            f"base={settings.drawing_completion_base_enabled}, "
+            f"shadow={settings.drawing_completion_shadow_enabled}, "
+            f"line={settings.drawing_completion_line_enabled}, "
+            f"min_area_ratio={settings.drawing_completion_min_area_ratio}, "
+            f"shadow_luma_threshold={settings.drawing_completion_shadow_luma_threshold}, "
+            f"edge_quantile={settings.drawing_completion_edge_quantile}"
+        )
         try:
             from transformers import AutoProcessor, GroundingDinoForObjectDetection
             messages.append("  → Loading model (this may take a while)...")

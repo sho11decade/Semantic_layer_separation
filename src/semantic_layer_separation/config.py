@@ -25,6 +25,19 @@ class Settings(BaseSettings):
         default=0.01, ge=0.0, le=1.0, alias="BACKGROUND_RESIDUAL_MIN_AREA_RATIO"
     )
     background_residual_label: str = Field(default="background", alias="BACKGROUND_RESIDUAL_LABEL")
+    drawing_completion_enabled: bool = Field(default=False, alias="DRAWING_COMPLETION_ENABLED")
+    drawing_completion_base_enabled: bool = Field(default=True, alias="DRAWING_COMPLETION_BASE_ENABLED")
+    drawing_completion_shadow_enabled: bool = Field(default=True, alias="DRAWING_COMPLETION_SHADOW_ENABLED")
+    drawing_completion_line_enabled: bool = Field(default=True, alias="DRAWING_COMPLETION_LINE_ENABLED")
+    drawing_completion_min_area_ratio: float = Field(
+        default=0.005, ge=0.0, le=1.0, alias="DRAWING_COMPLETION_MIN_AREA_RATIO"
+    )
+    drawing_completion_shadow_luma_threshold: float = Field(
+        default=0.4, ge=0.0, le=1.0, alias="DRAWING_COMPLETION_SHADOW_LUMA_THRESHOLD"
+    )
+    drawing_completion_edge_quantile: float = Field(
+        default=0.88, ge=0.0, le=1.0, alias="DRAWING_COMPLETION_EDGE_QUANTILE"
+    )
     sam2_checkpoint: str | None = Field(default=None, alias="SAM2_CHECKPOINT")
     sam2_model_config: str | None = Field(default=None, alias="SAM2_MODEL_CONFIG")
     output_dir: Path = Field(default=Path("outputs"), alias="OUTPUT_DIR")
