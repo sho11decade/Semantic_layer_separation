@@ -37,7 +37,6 @@ Semantic_layer_separation/
 │     └─ exporters/
 │        ├─ image_export.py      # mask/cutout/overlay 保存
 │        └─ archive_export.py    # アーカイブ出力
-├─ models/                       # SAM 2 モデル関連ファイル
 ├─ requirements.txt              # 依存関係（pip）
 └─ pyproject.toml                # パッケージ設定
 ```
@@ -131,6 +130,11 @@ semantic-layer-viewer
 - `confidence`: 検出信頼度（推定不可のレイヤーでは `null`）
 - `order_hint`: 検出順ベースの順序ヒント（推定不可では `null`）
 - `box`: 検出BBox `[x0, y0, x1, y1]`（非検出レイヤーでは `null`）
+- `material_role`: レイヤーの役割（`background` / `object` / `line_art` / `shadow` など）
+- `parent_index`: 推定親レイヤーの index（推定不可では `null`）
+- `occludes`: このレイヤーが手前で重なる背面レイヤー index の配列
+
+また、ルートキーとして任意の `relations` が出力され、`parent_edges` / `occlusion_edges` に構造化関係を保持します。
 
 ## 依存関係
 

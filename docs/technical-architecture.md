@@ -43,7 +43,7 @@
 
 `layers.json` は Viewer と外部ツールの共有契約です。
 
-- ルートキー: `layers`, `version`
+- ルートキー: `layers`, `version`（任意で `relations`）
 - 各 layer 必須キー:
   - `index`
   - `label`
@@ -56,6 +56,14 @@
   - `confidence` (検出スコア、推定不可時は `null`)
   - `order_hint` (検出順ベースのヒント、推定不可時は `null`)
   - `box` (`[x0, y0, x1, y1]`、非検出レイヤーは `null`)
+  - `material_role` (`background` / `object` / `line_art` / `shadow` など)
+  - `parent_index` (親レイヤー推定 index、推定不可時は `null`)
+  - `occludes` (手前レイヤーとして重なる背面 layer index の配列)
+
+`relations` を出力する場合の契約:
+- `schema`: 例 `layer_graph_v1`
+- `parent_edges[]`: `child_index`, `parent_index`, `overlap_ratio`
+- `occlusion_edges[]`: `front_index`, `back_index`, `overlap_ratio`
 
 命名規則は `NN_clean_label_{mask|cutout|overlay}.png` 形式で、`clean_label` は `sanitize_label` を経由します。
 

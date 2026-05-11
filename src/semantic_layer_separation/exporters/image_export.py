@@ -45,11 +45,13 @@ def save_overlay(image_path: Path, mask: np.ndarray, output_path: Path) -> None:
     Image.fromarray(blended, mode="RGBA").save(output_path)
 
 
-def save_metadata(layers_info: list[dict], output_dir: Path) -> None:
+def save_metadata(layers_info: list[dict], output_dir: Path, relations: dict | None = None) -> None:
     """Save layer metadata to JSON."""
     metadata = {
         "layers": layers_info,
-        "version": "1.0",
+        "version": "1.1",
     }
+    if relations is not None:
+        metadata["relations"] = relations
     with open(output_dir / "layers.json", "w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)

@@ -17,6 +17,9 @@ class LayerAsset:
     confidence: float | None = None
     order_hint: int | None = None
     box: list[int] | None = None
+    material_role: str | None = None
+    parent_index: int | None = None
+    occludes: list[int] | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -27,6 +30,7 @@ class LayerSet:
     metadata_version: str
     layers: list[LayerAsset]
     original_image_path: Path | None
+    relations: dict | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -86,6 +90,9 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
     raw_layers = payload.get("layers", [])
     if not isinstance(raw_layers, list):
         raise ValueError("'layers' must be a list")
+    relations = payload.get("relations")
+    if relations is not None and not isinstance(relations, dict):
+        raise ValueError("'relations' must be an object when provided")
 
     layers: list[LayerAsset] = []
     set_warnings: list[str] = []
@@ -137,6 +144,35 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
             else:
                 layer_warnings.append(f"Invalid box format: {box_raw}")
 
+        material_role_raw = item.get("material_role")
+        material_role: str | None = None
+        if material_role_raw is not None:
+            material_role = str(material_role_raw).strip()
+            if not material_role:
+                material_role = None
+
+        parent_index_raw = item.get("parent_index")
+        parent_index: int | None = None
+        if parent_index_raw is not None:
+            try:
+                parent_index = int(parent_index_raw)
+            except (TypeError, ValueError):
+                layer_warnings.append(f"Invalid parent_index value: {parent_index_raw}")
+
+        occludes_raw = item.get("occludes")
+        occludes: list[int] | None = None
+        if occludes_raw is not None:
+            if not isinstance(occludes_raw, list):
+                layer_warnings.append(f"Invalid occludes format: {occludes_raw}")
+            else:
+                parsed_occludes: list[int] = []
+                for value in occludes_raw:
+                    try:
+                        parsed_occludes.append(int(value))
+                    except (TypeError, ValueError):
+                        layer_warnings.append(f"Invalid occludes value: {value}")
+                occludes = sorted(set(parsed_occludes))
+
         mask_path = output_dir / mask_file
         cutout_path = output_dir / cutout_file
         overlay_path = output_dir / overlay_file
@@ -160,6 +196,9 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
                 confidence=confidence,
                 order_hint=order_hint,
                 box=box,
+                material_role=material_role,
+                parent_index=parent_index,
+                occludes=occludes,
                 warnings=layer_warnings,
             )
         )
@@ -176,5 +215,6 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
         metadata_version=metadata_version,
         layers=layers,
         original_image_path=resolved_original,
+        relations=relations if isinstance(relations, dict) else None,
         warnings=set_warnings,
     )

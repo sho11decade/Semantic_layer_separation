@@ -19,6 +19,8 @@ MASK_QUALITY_MIN_BOX_FILL_RATIO = 0.12
 MASK_QUALITY_MAX_BORDER_TOUCH_RATIO = 0.98
 MASK_QUALITY_RETRY_EXPAND_RATIO = 0.08
 MASK_QUALITY_RETRY_SHRINK_RATIO = 0.08
+LAYER_RELATION_OVERLAP_MIN = 0.08
+LAYER_PARENT_OVERLAP_MIN = 0.2
 
 
 @dataclass(slots=True)
@@ -144,7 +146,8 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
             "box": metadata["box"],
         })
     
-    save_metadata(layers_info, output_dir)
+    relations = _build_layer_relations(masks=masks, layers_info=layers_info)
+    save_metadata(layers_info, output_dir, relations=relations)
 
     return PipelineResult(targets=planning.targets, boxes=boxes, output_dir=output_dir)
 
@@ -458,6 +461,109 @@ def _resolve_layer_metadata(
         "confidence": None,
         "order_hint": None,
         "box": None,
+    }
+
+
+def _material_role_for_layer(*, label: str, source: str | None) -> str:
+    normalized = _normalize_label(label)
+    source_name = (source or "").strip().lower()
+    if source_name == "background_residual" or _has_any_keyword([normalized], ("background", "sky", "ground", "wall", "backdrop")):
+        return "background"
+    if _has_any_keyword([normalized], ("line", "line art", "lineart", "outline", "ink", "線画")):
+        return "line_art"
+    if _has_any_keyword([normalized], ("shadow", "shade", "影")):
+        return "shadow"
+    if _has_any_keyword([normalized], ("base", "flat", "underpaint", "下塗り", "ベース")):
+        return "base_fill"
+    if _has_any_keyword([normalized], ("highlight", "rim light", "specular", "glow", "発光")):
+        return "highlight"
+    return "object"
+
+
+def _overlap_ratio(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
+    bool_a = np.asarray(mask_a, dtype=bool)
+    bool_b = np.asarray(mask_b, dtype=bool)
+    inter = float((bool_a & bool_b).sum())
+    if inter <= 0:
+        return 0.0
+    min_area = float(min(bool_a.sum(), bool_b.sum()))
+    if min_area <= 0:
+        return 0.0
+    return inter / min_area
+
+
+def _layer_depth_key(layer_info: dict) -> float:
+    order_hint = layer_info.get("order_hint")
+    if isinstance(order_hint, int):
+        return float(order_hint)
+    index = layer_info.get("index")
+    if isinstance(index, int):
+        return float(index)
+    return 0.0
+
+
+def _build_layer_relations(*, masks: list, layers_info: list[dict]) -> dict:
+    if not masks or len(masks) != len(layers_info):
+        return {
+            "schema": "layer_graph_v1",
+            "parent_edges": [],
+            "occlusion_edges": [],
+        }
+
+    bool_masks = [np.asarray(mask_item.mask, dtype=bool) for mask_item in masks]
+    parent_edges: list[dict] = []
+    occlusion_edges: list[dict] = []
+
+    for i, layer_info in enumerate(layers_info):
+        current_depth = _layer_depth_key(layer_info)
+        current_mask = bool_masks[i]
+        best_parent_index: int | None = None
+        best_parent_overlap = 0.0
+        occludes: list[int] = []
+
+        for j, candidate in enumerate(layers_info):
+            if i == j:
+                continue
+            candidate_depth = _layer_depth_key(candidate)
+            if current_depth <= candidate_depth:
+                continue
+
+            overlap = _overlap_ratio(current_mask, bool_masks[j])
+            if overlap < LAYER_RELATION_OVERLAP_MIN:
+                continue
+
+            back_index = int(candidate["index"])
+            occludes.append(back_index)
+            occlusion_edges.append(
+                {
+                    "front_index": int(layer_info["index"]),
+                    "back_index": back_index,
+                    "overlap_ratio": round(overlap, 4),
+                }
+            )
+
+            if overlap >= LAYER_PARENT_OVERLAP_MIN and overlap > best_parent_overlap:
+                best_parent_overlap = overlap
+                best_parent_index = back_index
+
+        source = layer_info.get("source")
+        layer_info["material_role"] = _material_role_for_layer(label=str(layer_info.get("label", "")), source=str(source) if source is not None else None)
+        layer_info["parent_index"] = best_parent_index
+        layer_info["occludes"] = sorted(set(occludes))
+
+        if best_parent_index is not None:
+            parent_edges.append(
+                {
+                    "child_index": int(layer_info["index"]),
+                    "parent_index": best_parent_index,
+                    "overlap_ratio": round(best_parent_overlap, 4),
+                }
+            )
+
+    return {
+        "schema": "layer_graph_v1",
+        "parent_edges": parent_edges,
+        "occlusion_edges": occlusion_edges,
     }
 
 

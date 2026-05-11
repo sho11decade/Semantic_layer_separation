@@ -216,6 +216,9 @@ def main() -> None:
                     "confidence": layer.confidence,
                     "order_hint": layer.order_hint,
                     "box": layer.box,
+                    "material_role": layer.material_role or "",
+                    "parent_index": layer.parent_index,
+                    "occludes": layer.occludes or [],
                     "visible": layer.index in visible_indices,
                     "mask": layer.mask_path.name,
                     "cutout": layer.cutout_path.name,
@@ -226,6 +229,20 @@ def main() -> None:
             use_container_width=True,
             hide_index=True,
         )
+        if layer_set.relations:
+            relation_schema = layer_set.relations.get("schema", "unknown")
+            parent_edges = layer_set.relations.get("parent_edges", [])
+            occlusion_edges = layer_set.relations.get("occlusion_edges", [])
+            st.markdown("### Layer relations")
+            st.caption(
+                f"schema=`{relation_schema}`  |  parent_edges={len(parent_edges)}  |  occlusion_edges={len(occlusion_edges)}"
+            )
+            if isinstance(parent_edges, list) and parent_edges:
+                st.markdown("Parent edges")
+                st.dataframe(parent_edges, use_container_width=True, hide_index=True)
+            if isinstance(occlusion_edges, list) and occlusion_edges:
+                st.markdown("Occlusion edges")
+                st.dataframe(occlusion_edges, use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":
