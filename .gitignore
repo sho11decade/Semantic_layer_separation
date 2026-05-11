@@ -226,3 +226,4 @@ sam2.1_hiera_l.yaml
 sam2.1_hiera_large.pt
 batch_test/
 .github/
+.copilot/

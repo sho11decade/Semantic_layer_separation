@@ -73,6 +73,9 @@ semantic-layer-separation --image .\path\to\image.png
 # または
 python -m semantic_layer_separation.cli --image .\path\to\image.png
 
+# プロファイル指定（用途別プリセット）
+semantic-layer-separation --image .\path\to\image.png --profile illustration
+
 # ベンチマーク実行（固定画像セットの評価）
 semantic-layer-separation --benchmark-dir .\path\to\images
 # レポート出力先を指定する場合
@@ -122,6 +125,13 @@ semantic-layer-viewer
 - `cutout_file`
 - `overlay_file`
 
+加えて、次の任意キーが出力されます（後方互換維持）:
+
+- `source`: レイヤー生成元（`detector_segmenter` / `drawing_completion` / `background_residual`）
+- `confidence`: 検出信頼度（推定不可のレイヤーでは `null`）
+- `order_hint`: 検出順ベースの順序ヒント（推定不可では `null`）
+- `box`: 検出BBox `[x0, y0, x1, y1]`（非検出レイヤーでは `null`）
+
 ## 依存関係
 
 - Python 3.10 以上
@@ -133,6 +143,7 @@ semantic-layer-viewer
 - **SAM 2 は未設定でも動作**: 未設定の場合は `SimpleBoxSegmenter` が矩形マスクを生成
 - **Grounding DINO はすぐに使える**: `IDEA-Research/grounding-dino-base` から自動ダウンロード
 - **品質調整パラメータ**: `.env` で `PLANNING_MAX_TARGETS`、`DETECTION_BOX_THRESHOLD`、`DETECTION_TEXT_THRESHOLD`、`DETECTION_NMS_IOU_THRESHOLD`、`DETECTION_MAX_PER_LABEL`、`BACKGROUND_RESIDUAL_ENABLED`、`BACKGROUND_RESIDUAL_MIN_AREA_RATIO`、`BACKGROUND_RESIDUAL_LABEL`、`DRAWING_COMPLETION_*` を調整可能
+- **用途別プロファイル**: `--profile default|illustration|product` で検出閾値・補完レイヤー設定を一括切替可能
 - **同一/近似物体の扱い**: 既定で `DETECTION_MAX_PER_LABEL=3` とし、同ラベル物体を複数保持。さらに Planning プロンプトで位置修飾（left/right, front/back など）を促し、近似物体を区別しやすくしています。
 - **背景の補完レイヤー**: 物体として検出されなかった領域は、既存マスクの未カバー領域から残差背景レイヤーとして追加可能（既定有効）
 - **描画手順ベース補完レイヤー**: `DRAWING_COMPLETION_ENABLED=true` で、既存マスク群から線画（line_art）・下塗り（base_fill）・影（shadow）をルール補完して追加可能

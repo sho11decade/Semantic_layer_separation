@@ -67,7 +67,11 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
     except Exception as exc:
         raise ProcessingError(f"Segmentation failed: {exc}") from exc
 
+    primary_layer_metadata = _build_primary_layer_metadata(masks, boxes)
+
+    drawing_added_count = 0
     if settings.drawing_completion_enabled:
+        before_drawing = len(masks)
         masks = _append_drawing_process_completion_masks(
             image_path=image_path,
             masks=masks,
@@ -79,8 +83,11 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
             include_line=settings.drawing_completion_line_enabled,
             segmentation_mask_cls=SegmentationMask,
         )
+        drawing_added_count = max(0, len(masks) - before_drawing)
 
+    residual_added_count = 0
     if settings.background_residual_enabled:
+        before_residual = len(masks)
         masks = _append_residual_background_mask(
             image_path=image_path,
             masks=masks,
@@ -88,6 +95,7 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
             label=settings.background_residual_label,
             segmentation_mask_cls=SegmentationMask,
         )
+        residual_added_count = max(0, len(masks) - before_residual)
     
     layers_info = []
     for index, mask in tqdm(enumerate(masks, start=1), total=len(masks), desc="Processing layers"):
@@ -100,6 +108,14 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
         save_cutout(image_path, mask.mask, cutout_path)
         save_overlay(image_path, mask.mask, overlay_path)
         
+        metadata = _resolve_layer_metadata(
+            layer_position=index - 1,
+            primary_layer_count=len(primary_layer_metadata),
+            drawing_added_count=drawing_added_count,
+            residual_added_count=residual_added_count,
+            primary_layer_metadata=primary_layer_metadata,
+        )
+
         layers_info.append({
             "index": index,
             "label": mask.label,
@@ -107,6 +123,10 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
             "mask_file": mask_path.name,
             "cutout_file": cutout_path.name,
             "overlay_file": overlay_path.name,
+            "source": metadata["source"],
+            "confidence": metadata["confidence"],
+            "order_hint": metadata["order_hint"],
+            "box": metadata["box"],
         })
     
     save_metadata(layers_info, output_dir)
@@ -208,6 +228,82 @@ def _append_drawing_process_completion_masks(
 
 def _normalize_label(label: str) -> str:
     return " ".join(str(label).replace("_", " ").lower().split())
+
+
+def _build_primary_layer_metadata(masks: list, boxes: list) -> list[dict]:
+    metadata: list[dict] = []
+    used_box_indices: set[int] = set()
+
+    for mask_item in masks:
+        normalized_mask_label = _normalize_label(mask_item.label)
+        matched_index = None
+        for box_index, box in enumerate(boxes):
+            if box_index in used_box_indices:
+                continue
+            if _normalize_label(box.label) == normalized_mask_label:
+                matched_index = box_index
+                break
+
+        if matched_index is not None:
+            used_box_indices.add(matched_index)
+            matched_box = boxes[matched_index]
+            metadata.append(
+                {
+                    "source": "detector_segmenter",
+                    "confidence": float(matched_box.score),
+                    "order_hint": matched_index + 1,
+                    "box": [int(v) for v in matched_box.box],
+                }
+            )
+            continue
+
+        metadata.append(
+            {
+                "source": "detector_segmenter",
+                "confidence": None,
+                "order_hint": None,
+                "box": None,
+            }
+        )
+
+    return metadata
+
+
+def _resolve_layer_metadata(
+    *,
+    layer_position: int,
+    primary_layer_count: int,
+    drawing_added_count: int,
+    residual_added_count: int,
+    primary_layer_metadata: list[dict],
+) -> dict:
+    if layer_position < primary_layer_count:
+        return primary_layer_metadata[layer_position]
+
+    drawing_end = primary_layer_count + drawing_added_count
+    if layer_position < drawing_end:
+        return {
+            "source": "drawing_completion",
+            "confidence": None,
+            "order_hint": None,
+            "box": None,
+        }
+
+    residual_end = drawing_end + residual_added_count
+    if layer_position < residual_end:
+        return {
+            "source": "background_residual",
+            "confidence": None,
+            "order_hint": None,
+            "box": None,
+        }
+
+    return {
+        "source": "unknown",
+        "confidence": None,
+        "order_hint": None,
+        "box": None,
+    }
 
 
 def _has_any_keyword(normalized_labels: list[str], keywords: tuple[str, ...]) -> bool:

@@ -13,6 +13,10 @@ class LayerAsset:
     mask_path: Path
     cutout_path: Path
     overlay_path: Path
+    source: str | None = None
+    confidence: float | None = None
+    order_hint: int | None = None
+    box: list[int] | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -105,6 +109,34 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
             continue
 
         layer_warnings: list[str] = []
+        source = str(item["source"]).strip() if item.get("source") is not None else None
+        confidence_raw = item.get("confidence")
+        confidence: float | None = None
+        if confidence_raw is not None:
+            try:
+                confidence = float(confidence_raw)
+            except (TypeError, ValueError):
+                layer_warnings.append(f"Invalid confidence value: {confidence_raw}")
+
+        order_hint_raw = item.get("order_hint")
+        order_hint: int | None = None
+        if order_hint_raw is not None:
+            try:
+                order_hint = int(order_hint_raw)
+            except (TypeError, ValueError):
+                layer_warnings.append(f"Invalid order_hint value: {order_hint_raw}")
+
+        box_raw = item.get("box")
+        box: list[int] | None = None
+        if box_raw is not None:
+            if isinstance(box_raw, list) and len(box_raw) == 4:
+                try:
+                    box = [int(value) for value in box_raw]
+                except (TypeError, ValueError):
+                    layer_warnings.append(f"Invalid box values: {box_raw}")
+            else:
+                layer_warnings.append(f"Invalid box format: {box_raw}")
+
         mask_path = output_dir / mask_file
         cutout_path = output_dir / cutout_file
         overlay_path = output_dir / overlay_file
@@ -124,6 +156,10 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
                 mask_path=mask_path,
                 cutout_path=cutout_path,
                 overlay_path=overlay_path,
+                source=source,
+                confidence=confidence,
+                order_hint=order_hint,
+                box=box,
                 warnings=layer_warnings,
             )
         )

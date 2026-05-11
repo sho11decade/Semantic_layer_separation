@@ -6,6 +6,34 @@ from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+PROFILE_DEFAULT = "default"
+PROFILE_ILLUSTRATION = "illustration"
+PROFILE_PRODUCT = "product"
+PROFILE_CHOICES = (PROFILE_DEFAULT, PROFILE_ILLUSTRATION, PROFILE_PRODUCT)
+
+PROFILE_OVERRIDES: dict[str, dict[str, object]] = {
+    PROFILE_DEFAULT: {},
+    PROFILE_ILLUSTRATION: {
+        "detection_box_threshold": 0.28,
+        "detection_text_threshold": 0.2,
+        "detection_nms_iou_threshold": 0.45,
+        "detection_max_per_label": 4,
+        "background_residual_enabled": True,
+        "drawing_completion_enabled": True,
+        "drawing_completion_base_enabled": True,
+        "drawing_completion_shadow_enabled": True,
+        "drawing_completion_line_enabled": True,
+    },
+    PROFILE_PRODUCT: {
+        "detection_box_threshold": 0.4,
+        "detection_text_threshold": 0.3,
+        "detection_nms_iou_threshold": 0.5,
+        "detection_max_per_label": 2,
+        "background_residual_enabled": False,
+        "drawing_completion_enabled": False,
+    },
+}
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -46,3 +74,10 @@ class Settings(BaseSettings):
 def load_settings() -> Settings:
     load_dotenv()
     return Settings()
+
+
+def apply_processing_profile(settings: Settings, profile: str) -> Settings:
+    profile_name = profile.strip().lower()
+    if profile_name not in PROFILE_OVERRIDES:
+        raise ValueError(f"Unknown profile: {profile}")
+    return settings.model_copy(update=PROFILE_OVERRIDES[profile_name])

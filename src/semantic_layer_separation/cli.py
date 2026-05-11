@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 
+from semantic_layer_separation.config import PROFILE_CHOICES, apply_processing_profile, load_settings
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Semantic layer separation MVP")
@@ -20,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--benchmark-report", type=Path, default=None, help="Path to benchmark JSON report")
     
     parser.add_argument("--prompt", default=None, help="Optional custom planning prompt")
+    parser.add_argument("--profile", default="default", choices=PROFILE_CHOICES, help="Processing profile preset")
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Logging level")
     return parser
 
@@ -34,11 +36,10 @@ def main() -> int:
     
     logger.info(f"Starting semantic layer separation (log_level={args.log_level})")
 
-    from semantic_layer_separation.config import load_settings
     from semantic_layer_separation.validators import print_validation_report
     
-    settings = load_settings()
-    logger.debug(f"Settings loaded from .env")
+    settings = apply_processing_profile(load_settings(), args.profile)
+    logger.debug(f"Settings loaded from .env (profile={args.profile})")
     
     # Handle validation mode
     if args.validate_config:
@@ -63,6 +64,7 @@ def main() -> int:
             json.dumps(
                 {
                     "mode": "single",
+                    "profile": args.profile,
                     "targets": result.targets,
                     "boxes": [
                         {
@@ -87,6 +89,7 @@ def main() -> int:
             json.dumps(
                 {
                     "mode": "batch",
+                    "profile": args.profile,
                     "processed_images": len(results),
                     "results": [
                         {
@@ -117,6 +120,7 @@ def main() -> int:
             "Benchmark completed: "
             f"{report['summary']['successful_images']} success / {report['summary']['total_images']} total"
         )
+        report["profile"] = args.profile
         print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 

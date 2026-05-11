@@ -35,6 +35,8 @@
 | Benchmark | `--benchmark-dir` | 画像ごとの計測結果 + `benchmark_report.json` |
 | Validate | `--validate-config` | 設定妥当性レポート |
 
+全モードで `--profile default|illustration|product` を利用でき、検出閾値・補完設定を用途別プリセットで切り替えます。
+
 ## 4. 主要データ契約
 
 ### 4.1 `layers.json`
@@ -49,6 +51,11 @@
   - `mask_file`
   - `cutout_file`
   - `overlay_file`
+- 各 layer 任意キー（拡張契約）:
+  - `source` (`detector_segmenter` / `drawing_completion` / `background_residual`)
+  - `confidence` (検出スコア、推定不可時は `null`)
+  - `order_hint` (検出順ベースのヒント、推定不可時は `null`)
+  - `box` (`[x0, y0, x1, y1]`、非検出レイヤーは `null`)
 
 命名規則は `NN_clean_label_{mask|cutout|overlay}.png` 形式で、`clean_label` は `sanitize_label` を経由します。
 
