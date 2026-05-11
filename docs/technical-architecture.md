@@ -7,8 +7,8 @@
 本プロジェクトは、画像からセマンティックなレイヤーを抽出して PNG 群と `layers.json` を生成するパイプラインです。
 
 1. **Planning**: Azure OpenAI が分離対象ラベルを提案
-2. **Detection**: Grounding DINO がラベルごとのバウンディングボックスを推定
-3. **Segmentation**: SAM 2 でマスク化（未設定時は矩形マスクへフォールバック）
+2. **Detection**: Grounding DINO が2段階（recall→precision）でラベルごとのバウンディングボックスを推定
+3. **Segmentation**: SAM 2 でマスク化し、品質ゲートで低品質マスクは box 拡縮再推論（未設定時は矩形マスクへフォールバック）
 4. **Export**: `mask/cutout/overlay` と `layers.json` を出力
 5. **Completion (optional)**: 背景残差や描画補完レイヤーを追加
 
@@ -77,7 +77,7 @@
 ## 6. 設定パラメータの責務分離
 
 - `PLANNING_*`: LLM の候補生成量
-- `DETECTION_*`: 検出品質と重複抑制（`DETECTION_MAX_PER_LABEL` で同一ラベルの保持数を制御、既定 3）
+- `DETECTION_*`: 検出品質と重複抑制（2段階検出で recall 候補も併用し、`DETECTION_MAX_PER_LABEL` を最終保持数として適用）
 - `SAM2_*`: 高精度セグメンテーション有効化
 - `BACKGROUND_RESIDUAL_*`: 未カバー領域の背景化
 - `DRAWING_COMPLETION_*`: line/base/shadow 補完制御

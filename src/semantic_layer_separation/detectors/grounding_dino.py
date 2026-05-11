@@ -106,10 +106,60 @@ class GroundingDINODetector:
                 kept = kept[:max_per_label]
             filtered.extend(kept)
 
+        return self._sort_boxes_by_target_rank(filtered, target_rank)
+
+    @staticmethod
+    def _sort_boxes_by_target_rank(boxes: list[BoundingBox], target_rank: dict[str, int]) -> list[BoundingBox]:
         return sorted(
-            filtered,
-            key=lambda b: (target_rank.get(self._canonical_label(b.label), len(target_rank)), -b.score),
+            boxes,
+            key=lambda b: (target_rank.get(GroundingDINODetector._canonical_label(b.label), len(target_rank)), -b.score),
         )
+
+    @staticmethod
+    def _extract_boxes(results: list[dict]) -> list[BoundingBox]:
+        boxes: list[BoundingBox] = []
+        for result in results:
+            labels = result.get("text_labels", result.get("labels", []))
+            for box, score, label in zip(result["boxes"], result["scores"], labels):
+                x0, y0, x1, y1 = [int(value) for value in box.tolist()]
+                boxes.append(
+                    BoundingBox(
+                        label=str(label).strip(),
+                        score=float(score),
+                        box=(x0, y0, x1, y1),
+                    )
+                )
+        return boxes
+
+    def _merge_two_stage_boxes(
+        self,
+        *,
+        strict_boxes: list[BoundingBox],
+        recall_boxes: list[BoundingBox],
+        max_per_label: int,
+        iou_dedup_threshold: float = 0.85,
+    ) -> list[BoundingBox]:
+        if max_per_label <= 0:
+            return strict_boxes
+
+        merged: list[BoundingBox] = list(strict_boxes)
+        per_label_count: dict[str, int] = defaultdict(int)
+        for box in strict_boxes:
+            per_label_count[self._canonical_label(box.label)] += 1
+
+        for candidate in sorted(recall_boxes, key=lambda b: b.score, reverse=True):
+            canonical = self._canonical_label(candidate.label)
+            if per_label_count[canonical] >= max_per_label:
+                continue
+
+            existing_same_label = [box for box in merged if self._canonical_label(box.label) == canonical]
+            if any(self._iou(candidate.box, existing.box) >= iou_dedup_threshold for existing in existing_same_label):
+                continue
+
+            merged.append(candidate)
+            per_label_count[canonical] += 1
+
+        return merged
 
     def detect(
         self,
@@ -120,6 +170,9 @@ class GroundingDINODetector:
         nms_iou_threshold: float = 0.5,
         max_per_label: int = 1,
     ) -> list[BoundingBox]:
+        if not targets:
+            return []
+
         cache_targets = [
             *targets,
             f"__box:{threshold:.4f}",
@@ -147,7 +200,7 @@ class GroundingDINODetector:
         with torch.no_grad():
             outputs = self._model(**inputs)
 
-        results = self._processor.post_process_grounded_object_detection(
+        strict_results = self._processor.post_process_grounded_object_detection(
             outputs,
             inputs.input_ids,
             threshold=threshold,
@@ -155,27 +208,41 @@ class GroundingDINODetector:
             target_sizes=[image.size[::-1]],
             text_labels=[targets],
         )
-        boxes: list[BoundingBox] = []
-        for result in results:
-            labels = result.get("text_labels", result.get("labels", []))
-            for box, score, label in zip(result["boxes"], result["scores"], labels):
-                x0, y0, x1, y1 = [int(value) for value in box.tolist()]
-                boxes.append(
-                    BoundingBox(
-                        label=str(label).strip(),
-                        score=float(score),
-                        box=(x0, y0, x1, y1),
-                    )
-                )
 
-        boxes = self._post_process_boxes(
-            boxes,
+        recall_threshold = max(0.05, threshold * 0.7)
+        recall_text_threshold = max(0.05, text_threshold * 0.7)
+        recall_results = self._processor.post_process_grounded_object_detection(
+            outputs,
+            inputs.input_ids,
+            threshold=recall_threshold,
+            text_threshold=recall_text_threshold,
+            target_sizes=[image.size[::-1]],
+            text_labels=[targets],
+        )
+
+        strict_boxes = self._post_process_boxes(
+            self._extract_boxes(strict_results),
             targets,
             width=image.width,
             height=image.height,
             nms_iou_threshold=nms_iou_threshold,
             max_per_label=max_per_label,
         )
+        recall_boxes = self._post_process_boxes(
+            self._extract_boxes(recall_results),
+            targets,
+            width=image.width,
+            height=image.height,
+            nms_iou_threshold=min(0.95, nms_iou_threshold + 0.2),
+            max_per_label=max(max_per_label * 2, max_per_label + 1),
+        )
+        boxes = self._merge_two_stage_boxes(
+            strict_boxes=strict_boxes,
+            recall_boxes=recall_boxes,
+            max_per_label=max_per_label,
+        )
+        target_rank = {self._canonical_label(target): idx for idx, target in enumerate(targets)}
+        boxes = self._sort_boxes_by_target_rank(boxes, target_rank)
         
         # Cache result
         if self._cache:

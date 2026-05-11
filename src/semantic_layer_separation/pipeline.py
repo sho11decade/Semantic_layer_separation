@@ -13,6 +13,13 @@ from tqdm import tqdm
 from semantic_layer_separation.config import Settings
 from semantic_layer_separation.errors import ConfigurationError, ProcessingError, ModelError, safe_execute, ErrorSeverity
 
+MASK_QUALITY_MIN_AREA_RATIO = 0.0005
+MASK_QUALITY_MAX_AREA_RATIO = 0.95
+MASK_QUALITY_MIN_BOX_FILL_RATIO = 0.12
+MASK_QUALITY_MAX_BORDER_TOUCH_RATIO = 0.98
+MASK_QUALITY_RETRY_EXPAND_RATIO = 0.08
+MASK_QUALITY_RETRY_SHRINK_RATIO = 0.08
+
 
 @dataclass(slots=True)
 class PipelineResult:
@@ -66,6 +73,14 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
         masks = segmenter.segment(image_path, [(box.label, box.box) for box in boxes])
     except Exception as exc:
         raise ProcessingError(f"Segmentation failed: {exc}") from exc
+
+    masks = _refine_masks_with_quality_gate(
+        image_path=image_path,
+        masks=masks,
+        boxes=boxes,
+        segmenter=segmenter,
+        segmentation_mask_cls=SegmentationMask,
+    )
 
     primary_layer_metadata = _build_primary_layer_metadata(masks, boxes)
 
@@ -228,6 +243,146 @@ def _append_drawing_process_completion_masks(
 
 def _normalize_label(label: str) -> str:
     return " ".join(str(label).replace("_", " ").lower().split())
+
+
+def _adjust_box(
+    box: tuple[int, int, int, int],
+    *,
+    width: int,
+    height: int,
+    scale_delta: float,
+) -> tuple[int, int, int, int] | None:
+    x0, y0, x1, y1 = box
+    bw = x1 - x0
+    bh = y1 - y0
+    if bw <= 1 or bh <= 1:
+        return None
+
+    cx = x0 + bw / 2.0
+    cy = y0 + bh / 2.0
+    scale = 1.0 + scale_delta
+    nw = max(2.0, bw * scale)
+    nh = max(2.0, bh * scale)
+
+    nx0 = int(round(cx - (nw / 2.0)))
+    ny0 = int(round(cy - (nh / 2.0)))
+    nx1 = int(round(cx + (nw / 2.0)))
+    ny1 = int(round(cy + (nh / 2.0)))
+
+    nx0 = max(0, min(width - 1, nx0))
+    ny0 = max(0, min(height - 1, ny0))
+    nx1 = max(1, min(width, nx1))
+    ny1 = max(1, min(height, ny1))
+    if nx1 <= nx0 or ny1 <= ny0:
+        return None
+    return nx0, ny0, nx1, ny1
+
+
+def _calculate_mask_quality(
+    mask: np.ndarray,
+    *,
+    box: tuple[int, int, int, int] | None,
+    width: int,
+    height: int,
+) -> tuple[bool, float]:
+    mask_bool = np.asarray(mask, dtype=bool)
+    if mask_bool.shape != (height, width):
+        return False, 0.0
+
+    total_pixels = float(width * height)
+    mask_pixels = float(mask_bool.sum())
+    if total_pixels <= 0 or mask_pixels <= 0:
+        return False, 0.0
+
+    area_ratio = mask_pixels / total_pixels
+    if area_ratio < MASK_QUALITY_MIN_AREA_RATIO or area_ratio > MASK_QUALITY_MAX_AREA_RATIO:
+        return False, area_ratio
+
+    border_pixels = np.zeros_like(mask_bool)
+    border_pixels[0, :] = True
+    border_pixels[-1, :] = True
+    border_pixels[:, 0] = True
+    border_pixels[:, -1] = True
+    border_touch_ratio = float((mask_bool & border_pixels).sum() / mask_pixels)
+
+    fill_ratio = 1.0
+    if box is not None:
+        x0, y0, x1, y1 = box
+        box_w = max(1, x1 - x0)
+        box_h = max(1, y1 - y0)
+        box_area = float(box_w * box_h)
+        in_box = mask_bool[y0:y1, x0:x1]
+        fill_ratio = float(in_box.sum() / box_area) if box_area > 0 else 0.0
+
+    is_valid = (
+        fill_ratio >= MASK_QUALITY_MIN_BOX_FILL_RATIO
+        and border_touch_ratio <= MASK_QUALITY_MAX_BORDER_TOUCH_RATIO
+    )
+    score = (fill_ratio * 0.7) + ((1.0 - min(1.0, border_touch_ratio)) * 0.3)
+    return is_valid, score
+
+
+def _find_box_for_mask(mask_label: str, boxes: list, used_box_indices: set[int]) -> tuple[int, tuple[int, int, int, int] | None]:
+    normalized = _normalize_label(mask_label)
+    for idx, box in enumerate(boxes):
+        if idx in used_box_indices:
+            continue
+        if _normalize_label(box.label) == normalized:
+            return idx, box.box
+    return -1, None
+
+
+def _segment_with_box_retry(*, image_path: Path, label: str, box: tuple[int, int, int, int], segmenter, width: int, height: int):
+    candidates: list[np.ndarray] = []
+    for delta in (MASK_QUALITY_RETRY_EXPAND_RATIO, -MASK_QUALITY_RETRY_SHRINK_RATIO):
+        adjusted = _adjust_box(box, width=width, height=height, scale_delta=delta)
+        if adjusted is None:
+            continue
+        retry_masks = segmenter.segment(image_path, [(label, adjusted)])
+        if not retry_masks:
+            continue
+        candidates.append(np.asarray(retry_masks[0].mask, dtype=bool))
+    return candidates
+
+
+def _refine_masks_with_quality_gate(*, image_path: Path, masks: list, boxes: list, segmenter, segmentation_mask_cls) -> list:
+    if not masks:
+        return masks
+
+    with Image.open(image_path).convert("RGB") as source_image:
+        width, height = source_image.size
+
+    refined: list = []
+    used_box_indices: set[int] = set()
+    for mask_item in masks:
+        box_index, matched_box = _find_box_for_mask(mask_item.label, boxes, used_box_indices)
+        if box_index >= 0:
+            used_box_indices.add(box_index)
+
+        best_mask = np.asarray(mask_item.mask, dtype=bool)
+        is_valid, best_score = _calculate_mask_quality(best_mask, box=matched_box, width=width, height=height)
+        if not is_valid and matched_box is not None:
+            for retry_mask in _segment_with_box_retry(
+                image_path=image_path,
+                label=mask_item.label,
+                box=matched_box,
+                segmenter=segmenter,
+                width=width,
+                height=height,
+            ):
+                retry_valid, retry_score = _calculate_mask_quality(retry_mask, box=matched_box, width=width, height=height)
+                if retry_valid:
+                    best_mask = retry_mask
+                    best_score = retry_score
+                    is_valid = True
+                    break
+                if retry_score > best_score:
+                    best_mask = retry_mask
+                    best_score = retry_score
+
+        refined.append(segmentation_mask_cls(label=mask_item.label, mask=np.asarray(best_mask, dtype=bool)))
+
+    return refined
 
 
 def _build_primary_layer_metadata(masks: list, boxes: list) -> list[dict]:

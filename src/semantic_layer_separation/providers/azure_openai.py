@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import mimetypes
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,10 +11,11 @@ from openai import AzureOpenAI
 
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You analyze an image and return only the noun-like semantic targets that should be segmented "
-    "from back to front. When similar objects need to be separated, use stable positional qualifiers "
-    "(for example: left/right, foreground/background, front/back). Avoid redundant near-synonyms. "
-    "Output JSON only."
+    "You analyze an image and return noun-like semantic targets for segmentation from back to front. "
+    "Strictly avoid style/color/material words unless they are required to distinguish repeated instances. "
+    "Merge near-synonyms into one canonical concept (for example person/human -> character, ground/floor -> ground). "
+    "For repeated similar instances, include stable positional qualifiers (left/right/top/bottom/front/back/foreground/background). "
+    "Use concise snake_case labels and output JSON only."
 )
 
 
@@ -24,6 +26,45 @@ class PlanningResult:
 
 
 class AzureOpenAIPlanner:
+    _TOKEN_ALIASES = {
+        "people": "character",
+        "person": "character",
+        "human": "character",
+        "man": "character",
+        "woman": "character",
+        "girl": "character",
+        "boy": "character",
+        "pet": "animal",
+        "doggo": "dog",
+        "kitty": "cat",
+        "grounds": "ground",
+        "floor": "ground",
+        "road": "ground",
+        "backdrop": "background",
+        "bg": "background",
+        "skyline": "sky",
+    }
+    _PHRASE_ALIASES = {
+        "main character": "character",
+        "character body": "character_body",
+        "foreground character": "foreground_character",
+        "background character": "background_character",
+    }
+    _POSITIONAL_QUALIFIERS = {
+        "left",
+        "right",
+        "top",
+        "bottom",
+        "upper",
+        "lower",
+        "front",
+        "back",
+        "foreground",
+        "background",
+        "center",
+        "middle",
+    }
+
     def __init__(self, *, api_key: str, endpoint: str, api_version: str, deployment: str, use_cache: bool = True) -> None:
         self._client = AzureOpenAI(api_key=api_key, azure_endpoint=endpoint, api_version=api_version)
         self._deployment = deployment
@@ -51,10 +92,11 @@ class AzureOpenAIPlanner:
                 "role": "user",
                 "content": (
                     "I want to layer-separate this image as a digital illustration. "
-                    "Please output a list of specific nouns that can be used for segmentation, "
-                    "considering the stacking order from back to front. "
-                    "If similar objects or repeated instances must be separated, add short positional qualifiers "
-                    "to keep labels distinguishable. Return JSON only with the schema "
+                    "Please output a list of concrete noun labels for segmentation from back to front. "
+                    "Rules: (1) merge near-synonyms to canonical labels, (2) keep granularity consistent, "
+                    "(3) for repeated similar objects include positional qualifiers, "
+                    "(4) avoid visual-style words (e.g., red/shiny/cute) unless required for disambiguation, "
+                    "(5) use snake_case labels only. Return JSON only with the schema "
                     '{"targets": ["background", "mountains", "character_body", "hair", "sword"]}'
                 ),
             },
@@ -108,9 +150,35 @@ class AzureOpenAIPlanner:
             cleaned = str(target).strip()
             if not cleaned:
                 continue
-            canonical = " ".join(cleaned.replace("_", " ").lower().split())
-            if not canonical or canonical in seen:
+            normalized = AzureOpenAIPlanner._normalize_target_label(cleaned)
+            if not normalized:
                 continue
-            seen.add(canonical)
-            deduped_targets.append(cleaned)
+            dedupe_key = " ".join(normalized.replace("_", " ").split())
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            deduped_targets.append(normalized)
         return deduped_targets
+
+    @classmethod
+    def _normalize_target_label(cls, label: str) -> str:
+        canonical = re.sub(r"[^a-zA-Z0-9_\-\s]", " ", label.lower()).replace("-", " ").replace("_", " ")
+        canonical = re.sub(r"\s+", " ", canonical).strip()
+        if not canonical:
+            return ""
+
+        if canonical in cls._PHRASE_ALIASES:
+            return cls._PHRASE_ALIASES[canonical]
+
+        tokens = [cls._TOKEN_ALIASES.get(token, token) for token in canonical.split(" ")]
+        if not tokens:
+            return ""
+
+        if len(tokens) > 1 and tokens[0] in cls._POSITIONAL_QUALIFIERS:
+            # Preserve explicit position qualifier for repeated instances.
+            normalized = "_".join(tokens[:3])
+        else:
+            normalized = "_".join(tokens[:2])
+
+        normalized = re.sub(r"_+", "_", normalized).strip("_")
+        return normalized
