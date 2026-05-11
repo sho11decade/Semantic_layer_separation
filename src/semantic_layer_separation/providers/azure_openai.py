@@ -11,7 +11,9 @@ from openai import AzureOpenAI
 
 DEFAULT_SYSTEM_PROMPT = (
     "You analyze an image and return only the noun-like semantic targets that should be segmented "
-    "from back to front. Output JSON only."
+    "from back to front. When similar objects need to be separated, use stable positional qualifiers "
+    "(for example: left/right, foreground/background, front/back). Avoid redundant near-synonyms. "
+    "Output JSON only."
 )
 
 
@@ -50,7 +52,9 @@ class AzureOpenAIPlanner:
                 "content": (
                     "I want to layer-separate this image as a digital illustration. "
                     "Please output a list of specific nouns that can be used for segmentation, "
-                    "considering the stacking order from back to front. Return JSON only with the schema "
+                    "considering the stacking order from back to front. "
+                    "If similar objects or repeated instances must be separated, add short positional qualifiers "
+                    "to keep labels distinguishable. Return JSON only with the schema "
                     '{"targets": ["background", "mountains", "character_body", "hair", "sword"]}'
                 ),
             },

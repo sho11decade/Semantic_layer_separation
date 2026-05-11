@@ -70,7 +70,7 @@
 ## 6. 設定パラメータの責務分離
 
 - `PLANNING_*`: LLM の候補生成量
-- `DETECTION_*`: 検出品質と重複抑制
+- `DETECTION_*`: 検出品質と重複抑制（`DETECTION_MAX_PER_LABEL` で同一ラベルの保持数を制御、既定 3）
 - `SAM2_*`: 高精度セグメンテーション有効化
 - `BACKGROUND_RESIDUAL_*`: 未カバー領域の背景化
 - `DRAWING_COMPLETION_*`: line/base/shadow 補完制御

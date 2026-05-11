@@ -133,6 +133,7 @@ semantic-layer-viewer
 - **SAM 2 は未設定でも動作**: 未設定の場合は `SimpleBoxSegmenter` が矩形マスクを生成
 - **Grounding DINO はすぐに使える**: `IDEA-Research/grounding-dino-base` から自動ダウンロード
 - **品質調整パラメータ**: `.env` で `PLANNING_MAX_TARGETS`、`DETECTION_BOX_THRESHOLD`、`DETECTION_TEXT_THRESHOLD`、`DETECTION_NMS_IOU_THRESHOLD`、`DETECTION_MAX_PER_LABEL`、`BACKGROUND_RESIDUAL_ENABLED`、`BACKGROUND_RESIDUAL_MIN_AREA_RATIO`、`BACKGROUND_RESIDUAL_LABEL`、`DRAWING_COMPLETION_*` を調整可能
+- **同一/近似物体の扱い**: 既定で `DETECTION_MAX_PER_LABEL=3` とし、同ラベル物体を複数保持。さらに Planning プロンプトで位置修飾（left/right, front/back など）を促し、近似物体を区別しやすくしています。
 - **背景の補完レイヤー**: 物体として検出されなかった領域は、既存マスクの未カバー領域から残差背景レイヤーとして追加可能（既定有効）
 - **描画手順ベース補完レイヤー**: `DRAWING_COMPLETION_ENABLED=true` で、既存マスク群から線画（line_art）・下塗り（base_fill）・影（shadow）をルール補完して追加可能
 - **SAM 2 セットアップ** (高精度マスクが必要な場合):
