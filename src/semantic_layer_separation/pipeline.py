@@ -32,7 +32,16 @@ class PipelineResult:
 
 def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = None, output_subdir: str | None = None) -> PipelineResult:
     from semantic_layer_separation.detectors.grounding_dino import BoundingBox, GroundingDINODetector
-    from semantic_layer_separation.exporters.image_export import ensure_output_dir, sanitize_label, save_cutout, save_mask, save_metadata, save_overlay
+    from semantic_layer_separation.exporters.image_export import (
+        build_hybrid_alpha,
+        ensure_output_dir,
+        sanitize_label,
+        save_alpha,
+        save_cutout,
+        save_mask,
+        save_metadata,
+        save_overlay,
+    )
     from semantic_layer_separation.providers.azure_openai import AzureOpenAIPlanner
     from semantic_layer_separation.segmenters.sam2 import SAM2Segmenter, SegmentationMask, SimpleBoxSegmenter
 
@@ -120,10 +129,12 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
         mask_path = output_dir / f"{index:02d}_{clean_label}_mask.png"
         cutout_path = output_dir / f"{index:02d}_{clean_label}_cutout.png"
         overlay_path = output_dir / f"{index:02d}_{clean_label}_overlay.png"
+        alpha_path = output_dir / f"{index:02d}_{clean_label}_alpha.png"
         
         save_mask(mask.mask, mask_path)
         save_cutout(image_path, mask.mask, cutout_path)
         save_overlay(image_path, mask.mask, overlay_path)
+        save_alpha(build_hybrid_alpha(mask.mask), alpha_path)
         
         metadata = _resolve_layer_metadata(
             layer_position=index - 1,
@@ -140,6 +151,7 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
             "mask_file": mask_path.name,
             "cutout_file": cutout_path.name,
             "overlay_file": overlay_path.name,
+            "alpha_file": alpha_path.name,
             "source": metadata["source"],
             "confidence": metadata["confidence"],
             "order_hint": metadata["order_hint"],
@@ -637,6 +649,112 @@ def _count_exported_layers(output_dir: Path) -> int:
     return len(layers) if isinstance(layers, list) else 0
 
 
+def _shift_bool(mask: np.ndarray, dy: int, dx: int) -> np.ndarray:
+    shifted = np.zeros_like(mask, dtype=bool)
+    src_y0 = max(0, -dy)
+    src_y1 = mask.shape[0] - max(0, dy)
+    src_x0 = max(0, -dx)
+    src_x1 = mask.shape[1] - max(0, dx)
+    dst_y0 = max(0, dy)
+    dst_y1 = dst_y0 + (src_y1 - src_y0)
+    dst_x0 = max(0, dx)
+    dst_x1 = dst_x0 + (src_x1 - src_x0)
+    if src_y1 <= src_y0 or src_x1 <= src_x0:
+        return shifted
+    shifted[dst_y0:dst_y1, dst_x0:dst_x1] = mask[src_y0:src_y1, src_x0:src_x1]
+    return shifted
+
+
+def _compute_boundary_ratio(mask: np.ndarray) -> float:
+    mask_bool = np.asarray(mask, dtype=bool)
+    area = float(mask_bool.sum())
+    if area <= 0:
+        return 0.0
+
+    interior = mask_bool.copy()
+    for dy, dx in ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)):
+        interior &= _shift_bool(mask_bool, dy=dy, dx=dx)
+    boundary = mask_bool & ~interior
+    return float(boundary.sum() / area)
+
+
+def _compute_editability_metrics(output_dir: Path) -> dict:
+    metadata_path = output_dir / "layers.json"
+    if not metadata_path.exists():
+        return {
+            "uncovered_ratio": None,
+            "overlap_conflict_ratio": None,
+            "edge_noise_ratio": None,
+            "correction_iterations_to_accept": 0,
+        }
+
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {
+            "uncovered_ratio": None,
+            "overlap_conflict_ratio": None,
+            "edge_noise_ratio": None,
+            "correction_iterations_to_accept": 0,
+        }
+
+    layers = payload.get("layers", [])
+    if not isinstance(layers, list):
+        layers = []
+
+    mask_arrays: list[np.ndarray] = []
+    for layer in layers:
+        if not isinstance(layer, dict):
+            continue
+        mask_file = layer.get("mask_file")
+        if not isinstance(mask_file, str) or not mask_file.strip():
+            continue
+        mask_path = output_dir / mask_file
+        if not mask_path.exists():
+            continue
+        with Image.open(mask_path).convert("L") as image:
+            mask_arrays.append(np.asarray(image, dtype=np.uint8) > 0)
+
+    uncovered_ratio = None
+    overlap_conflict_ratio = None
+    edge_noise_ratio = None
+
+    if mask_arrays:
+        h, w = mask_arrays[0].shape[:2]
+        coverage_count = np.zeros((h, w), dtype=np.int16)
+        for mask in mask_arrays:
+            if mask.shape != (h, w):
+                continue
+            coverage_count += mask.astype(np.int16)
+
+        total_px = float(h * w)
+        if total_px > 0:
+            uncovered_ratio = float((coverage_count == 0).sum() / total_px)
+            overlap_conflict_ratio = float((coverage_count > 1).sum() / total_px)
+
+        boundary_ratios = [_compute_boundary_ratio(mask) for mask in mask_arrays if mask.shape == (h, w)]
+        if boundary_ratios:
+            edge_noise_ratio = float(sum(boundary_ratios) / len(boundary_ratios))
+
+    corrections_path = output_dir / "corrections.json"
+    correction_iterations = 0
+    if corrections_path.exists():
+        try:
+            corrections_payload = json.loads(corrections_path.read_text(encoding="utf-8"))
+            corrections = corrections_payload.get("corrections", [])
+            if isinstance(corrections, list):
+                correction_iterations = len(corrections)
+        except (OSError, json.JSONDecodeError):
+            correction_iterations = 0
+
+    return {
+        "uncovered_ratio": None if uncovered_ratio is None else round(uncovered_ratio, 6),
+        "overlap_conflict_ratio": None if overlap_conflict_ratio is None else round(overlap_conflict_ratio, 6),
+        "edge_noise_ratio": None if edge_noise_ratio is None else round(edge_noise_ratio, 6),
+        "correction_iterations_to_accept": correction_iterations,
+    }
+
+
 def run_benchmark_pipeline(
     *,
     image_dir: Path,
@@ -663,6 +781,7 @@ def run_benchmark_pipeline(
         try:
             result = run_pipeline(image_path=image_path, settings=settings, prompt=prompt, output_subdir=subdir_name)
             elapsed_ms = (perf_counter() - started) * 1000.0
+            editability_metrics = _compute_editability_metrics(result.output_dir)
             results.append(
                 {
                     "image": str(image_path),
@@ -671,6 +790,7 @@ def run_benchmark_pipeline(
                     "target_count": len(result.targets),
                     "box_count": len(result.boxes),
                     "layer_count": _count_exported_layers(result.output_dir),
+                    **editability_metrics,
                     "output_dir": str(result.output_dir),
                 }
             )
@@ -699,6 +819,12 @@ def run_benchmark_pipeline(
         sum(item["duration_ms"] for item in success_results) / len(success_results), 2
     ) if success_results else None
 
+    def _avg_metric(metric_name: str):
+        values = [item[metric_name] for item in success_results if item.get(metric_name) is not None]
+        if not values:
+            return None
+        return round(sum(values) / len(values), 6)
+
     report = {
         "mode": "benchmark",
         "image_dir": str(image_dir),
@@ -708,6 +834,10 @@ def run_benchmark_pipeline(
             "failed_images": len(error_results),
             "total_duration_ms": round(total_duration_ms, 2),
             "avg_duration_ms_success_only": avg_duration_ms,
+            "avg_uncovered_ratio": _avg_metric("uncovered_ratio"),
+            "avg_overlap_conflict_ratio": _avg_metric("overlap_conflict_ratio"),
+            "avg_edge_noise_ratio": _avg_metric("edge_noise_ratio"),
+            "avg_correction_iterations_to_accept": _avg_metric("correction_iterations_to_accept"),
         },
         "results": results,
     }

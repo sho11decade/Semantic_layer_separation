@@ -9,7 +9,7 @@
 1. **Planning**: Azure OpenAI が分離対象ラベルを提案
 2. **Detection**: Grounding DINO が2段階（recall→precision）でラベルごとのバウンディングボックスを推定
 3. **Segmentation**: SAM 2 でマスク化し、品質ゲートで低品質マスクは box 拡縮再推論（未設定時は矩形マスクへフォールバック）
-4. **Export**: `mask/cutout/overlay` と `layers.json` を出力
+4. **Export**: `mask/cutout/overlay/alpha` と `layers.json` を出力
 5. **Completion (optional)**: 背景残差や描画補完レイヤーを追加
 
 ## 2. モジュール責務
@@ -23,7 +23,7 @@
 | `src\semantic_layer_separation\detectors\grounding_dino.py` | テキスト条件検出と NMS 制御 |
 | `src\semantic_layer_separation\segmenters\sam2.py` | SAM2 推論と `SimpleBoxSegmenter` フォールバック |
 | `src\semantic_layer_separation\exporters\image_export.py` | 画像/メタデータ出力、ラベルサニタイズ |
-| `src\semantic_layer_separation\viewer\` | Streamlit ビューア（読込・合成・表示） |
+| `src\semantic_layer_separation\viewer\` | Streamlit ビューア（読込・合成・表示・手動補正） |
 | `src\semantic_layer_separation\validators.py` | 設定検証と実行前チェック |
 
 ## 3. 実行モード
@@ -52,10 +52,11 @@
   - `cutout_file`
   - `overlay_file`
 - 各 layer 任意キー（拡張契約）:
-  - `source` (`detector_segmenter` / `drawing_completion` / `background_residual`)
+  - `source` (`detector_segmenter` / `drawing_completion` / `background_residual` / `manual_correction`)
   - `confidence` (検出スコア、推定不可時は `null`)
   - `order_hint` (検出順ベースのヒント、推定不可時は `null`)
   - `box` (`[x0, y0, x1, y1]`、非検出レイヤーは `null`)
+  - `alpha_file` (ハイブリッド alpha PNG、旧出力では未設定可)
   - `material_role` (`background` / `object` / `line_art` / `shadow` など)
   - `parent_index` (親レイヤー推定 index、推定不可時は `null`)
   - `occludes` (手前レイヤーとして重なる背面 layer index の配列)
@@ -65,6 +66,8 @@
 - `parent_edges[]`: `child_index`, `parent_index`, `overlap_ratio`
 - `occlusion_edges[]`: `front_index`, `back_index`, `overlap_ratio`
 
+Viewer の手動補正時は `corrections.json` を同ディレクトリに追記し、補正履歴を保持します。
+
 命名規則は `NN_clean_label_{mask|cutout|overlay}.png` 形式で、`clean_label` は `sanitize_label` を経由します。
 
 ### 4.2 Benchmark Report
@@ -72,7 +75,8 @@
 `benchmark_report.json` は評価基盤の出力契約です。
 
 - `summary`: 総画像数、成功/失敗数、総処理時間、成功画像の平均時間
-- `results[]`: 画像ごとの `duration_ms`, `target_count`, `box_count`, `layer_count`, `status`
+- `summary` 拡張: 編集性平均指標 `avg_uncovered_ratio`, `avg_overlap_conflict_ratio`, `avg_edge_noise_ratio`, `avg_correction_iterations_to_accept`
+- `results[]`: 画像ごとの `duration_ms`, `target_count`, `box_count`, `layer_count`, `status`, `uncovered_ratio`, `overlap_conflict_ratio`, `edge_noise_ratio`, `correction_iterations_to_accept`
 
 ## 5. フォールバック設計
 

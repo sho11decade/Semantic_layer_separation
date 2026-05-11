@@ -100,20 +100,22 @@ semantic-layer-viewer
 
 - レイヤーの表示ON/OFF
 - アクティブレイヤー選択
-- 表示モード切替（Original / Composite / Mask / Cutout / Overlay）
+- 表示モード切替（Original / Composite / Mask / Cutout / Overlay / Alpha）
 - Composite不透明度調整
+- Active layer の box 補正と再セグメンテーション（補正履歴は `corrections.json` に保存）
 
 ## 出力ファイル
 
-各層に対して以下の 3 ファイルが生成されます：
+各層に対して以下のファイルが生成されます：
 
 - `NN_label_mask.png`: バイナリマスク（グレースケール、0-255）
 - `NN_label_cutout.png`: 元画像を alpha チャンネルでマスク（RGBA PNG）
 - `NN_label_overlay.png`: 元画像に赤色でハイライト（RGBA PNG）
+- `NN_label_alpha.png`: 境界をソフト化したハイブリッド alpha（グレースケール、0-255）
 
 加えて、`layers.json` でメタデータ（元ラベル、サニタイズ後ラベル、ファイル名対応）を記録します。
 
-ベンチマーク実行時は、処理時間・ターゲット数・ボックス数・レイヤー数を含む集計 JSON（既定: `outputs/benchmark_report.json`）も出力されます。
+ベンチマーク実行時は、処理時間・ターゲット数・ボックス数・レイヤー数に加えて、編集性メトリクス（`uncovered_ratio`, `overlap_conflict_ratio`, `edge_noise_ratio`, `correction_iterations_to_accept`）を含む集計 JSON（既定: `outputs/benchmark_report.json`）も出力されます。
 
 `layers.json` の各レイヤーは次のキーを前提にします:
 
@@ -126,15 +128,17 @@ semantic-layer-viewer
 
 加えて、次の任意キーが出力されます（後方互換維持）:
 
-- `source`: レイヤー生成元（`detector_segmenter` / `drawing_completion` / `background_residual`）
+- `source`: レイヤー生成元（`detector_segmenter` / `drawing_completion` / `background_residual` / `manual_correction`）
 - `confidence`: 検出信頼度（推定不可のレイヤーでは `null`）
 - `order_hint`: 検出順ベースの順序ヒント（推定不可では `null`）
 - `box`: 検出BBox `[x0, y0, x1, y1]`（非検出レイヤーでは `null`）
+- `alpha_file`: ハイブリッド alpha ファイル名（生成されない旧出力では欠損可）
 - `material_role`: レイヤーの役割（`background` / `object` / `line_art` / `shadow` など）
 - `parent_index`: 推定親レイヤーの index（推定不可では `null`）
 - `occludes`: このレイヤーが手前で重なる背面レイヤー index の配列
 
 また、ルートキーとして任意の `relations` が出力され、`parent_edges` / `occlusion_edges` に構造化関係を保持します。
+Viewer 補正を実行すると、同一出力ディレクトリに `corrections.json` が生成されます。
 
 ## 依存関係
 

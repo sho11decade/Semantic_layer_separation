@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -43,6 +44,33 @@ def save_overlay(image_path: Path, mask: np.ndarray, output_path: Path) -> None:
     highlight[..., 3] = (mask.astype(np.uint8) * 100)
     blended = np.clip(overlay.astype(np.int16) + highlight.astype(np.int16), 0, 255).astype(np.uint8)
     Image.fromarray(blended, mode="RGBA").save(output_path)
+
+
+def build_hybrid_alpha(mask: np.ndarray) -> np.ndarray:
+    mask_u8 = np.asarray(mask, dtype=np.uint8)
+    if mask_u8.ndim != 2:
+        raise ValueError("Mask must be a 2D array for alpha generation.")
+
+    if mask_u8.max() > 1:
+        mask_u8 = (mask_u8 > 0).astype(np.uint8)
+
+    if int(mask_u8.sum()) == 0:
+        return np.zeros_like(mask_u8, dtype=np.uint8)
+
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    inner = cv2.erode(mask_u8, kernel, iterations=1)
+    outer = cv2.dilate(mask_u8, kernel, iterations=1)
+    boundary = (outer > inner)
+
+    blurred = cv2.GaussianBlur((mask_u8 * 255).astype(np.uint8), (0, 0), sigmaX=1.2, sigmaY=1.2)
+    alpha = (mask_u8 * 255).astype(np.uint8)
+    alpha[boundary] = blurred[boundary]
+    return alpha
+
+
+def save_alpha(alpha: np.ndarray, output_path: Path) -> None:
+    alpha_image = Image.fromarray(alpha.astype(np.uint8), mode="L")
+    alpha_image.save(output_path)
 
 
 def save_metadata(layers_info: list[dict], output_dir: Path, relations: dict | None = None) -> None:

@@ -13,6 +13,7 @@ class LayerAsset:
     mask_path: Path
     cutout_path: Path
     overlay_path: Path
+    alpha_path: Path | None = None
     source: str | None = None
     confidence: float | None = None
     order_hint: int | None = None
@@ -176,6 +177,8 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
         mask_path = output_dir / mask_file
         cutout_path = output_dir / cutout_file
         overlay_path = output_dir / overlay_file
+        alpha_file = item.get("alpha_file")
+        alpha_path = (output_dir / str(alpha_file).strip()) if isinstance(alpha_file, str) and str(alpha_file).strip() else None
 
         if not mask_path.exists():
             layer_warnings.append(f"Missing mask file: {mask_file}")
@@ -183,6 +186,8 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
             layer_warnings.append(f"Missing cutout file: {cutout_file}")
         if not overlay_path.exists():
             layer_warnings.append(f"Missing overlay file: {overlay_file}")
+        if alpha_path is not None and not alpha_path.exists():
+            layer_warnings.append(f"Missing alpha file: {alpha_file}")
 
         layers.append(
             LayerAsset(
@@ -192,6 +197,7 @@ def load_layer_set(output_dir: Path, *, original_image_path: Path | None = None)
                 mask_path=mask_path,
                 cutout_path=cutout_path,
                 overlay_path=overlay_path,
+                alpha_path=alpha_path,
                 source=source,
                 confidence=confidence,
                 order_hint=order_hint,
