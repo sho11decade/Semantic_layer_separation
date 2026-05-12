@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     detection_text_threshold: float = Field(default=0.25, ge=0.0, le=1.0, alias="DETECTION_TEXT_THRESHOLD")
     detection_nms_iou_threshold: float = Field(default=0.5, ge=0.0, le=1.0, alias="DETECTION_NMS_IOU_THRESHOLD")
     detection_max_per_label: int = Field(default=3, ge=1, alias="DETECTION_MAX_PER_LABEL")
+    person_refinement_enabled: bool = Field(default=True, alias="PERSON_REFINEMENT_ENABLED")
+    person_refinement_score_threshold: float = Field(default=0.6, ge=0.0, le=1.0, alias="PERSON_REFINEMENT_SCORE_THRESHOLD")
+    person_refinement_iou_threshold: float = Field(default=0.2, ge=0.0, le=1.0, alias="PERSON_REFINEMENT_IOU_THRESHOLD")
+    person_refinement_max_instances: int = Field(default=6, ge=1, alias="PERSON_REFINEMENT_MAX_INSTANCES")
     background_residual_enabled: bool = Field(default=True, alias="BACKGROUND_RESIDUAL_ENABLED")
     background_residual_min_area_ratio: float = Field(
         default=0.01, ge=0.0, le=1.0, alias="BACKGROUND_RESIDUAL_MIN_AREA_RATIO"

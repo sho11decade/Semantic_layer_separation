@@ -9,8 +9,9 @@
 1. **Planning**: Azure OpenAI が分離対象ラベルを提案
 2. **Detection**: Grounding DINO が2段階（recall→precision）でラベルごとのバウンディングボックスを推定
 3. **Segmentation**: SAM 2 でマスク化し、品質ゲートで低品質マスクは box 拡縮再推論（未設定時は矩形マスクへフォールバック）
-4. **Export**: `mask/cutout/overlay/alpha` と `layers.json` を出力
-5. **Completion (optional)**: 背景残差や描画補完レイヤーを追加
+4. **Person Refinement (optional)**: 人物系ラベルを Mask R-CNN で再マスク補正
+5. **Export**: `mask/cutout/overlay/alpha` と `layers.json` を出力
+6. **Completion (optional)**: 背景残差や描画補完レイヤーを追加
 
 ## 2. モジュール責務
 
@@ -22,6 +23,7 @@
 | `src\semantic_layer_separation\providers\azure_openai.py` | レイヤー候補の生成 |
 | `src\semantic_layer_separation\detectors\grounding_dino.py` | テキスト条件検出と NMS 制御 |
 | `src\semantic_layer_separation\segmenters\sam2.py` | SAM2 推論と `SimpleBoxSegmenter` フォールバック |
+| `src\semantic_layer_separation\refiners\person_refiner.py` | 人物向け Mask R-CNN 再マスク補正 |
 | `src\semantic_layer_separation\exporters\image_export.py` | 画像/メタデータ出力、ラベルサニタイズ |
 | `src\semantic_layer_separation\viewer\` | Streamlit ビューア（読込・合成・表示・手動補正） |
 | `src\semantic_layer_separation\validators.py` | 設定検証と実行前チェック |
@@ -52,7 +54,7 @@
   - `cutout_file`
   - `overlay_file`
 - 各 layer 任意キー（拡張契約）:
-  - `source` (`detector_segmenter` / `drawing_completion` / `background_residual` / `manual_correction`)
+  - `source` (`detector_segmenter` / `person_refiner` / `drawing_completion` / `background_residual` / `manual_correction`)
   - `confidence` (検出スコア、推定不可時は `null`)
   - `order_hint` (検出順ベースのヒント、推定不可時は `null`)
   - `box` (`[x0, y0, x1, y1]`、非検出レイヤーは `null`)
@@ -90,6 +92,7 @@ Viewer の手動補正時は `corrections.json` を同ディレクトリに追�
 
 - `PLANNING_*`: LLM の候補生成量
 - `DETECTION_*`: 検出品質と重複抑制（2段階検出で recall 候補も併用し、`DETECTION_MAX_PER_LABEL` を最終保持数として適用）
+- `PERSON_REFINEMENT_*`: 人物ラベルに対する専門補正（Mask R-CNN 連携）
 - `SAM2_*`: 高精度セグメンテーション有効化
 - `BACKGROUND_RESIDUAL_*`: 未カバー領域の背景化
 - `DRAWING_COMPLETION_*`: line/base/shadow 補完制御

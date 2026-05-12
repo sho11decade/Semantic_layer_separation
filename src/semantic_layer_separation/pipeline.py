@@ -93,7 +93,19 @@ def run_pipeline(*, image_path: Path, settings: Settings, prompt: str | None = N
         segmentation_mask_cls=SegmentationMask,
     )
 
-    primary_layer_metadata = _build_primary_layer_metadata(masks, boxes)
+    masks, person_refinement_scores = _refine_person_masks(
+        image_path=image_path,
+        masks=masks,
+        boxes=boxes,
+        settings=settings,
+        segmentation_mask_cls=SegmentationMask,
+    )
+
+    primary_layer_metadata = _build_primary_layer_metadata(
+        masks,
+        boxes,
+        person_refinement_scores=person_refinement_scores,
+    )
 
     drawing_added_count = 0
     if settings.drawing_completion_enabled:
@@ -260,6 +272,58 @@ def _normalize_label(label: str) -> str:
     return " ".join(str(label).replace("_", " ").lower().split())
 
 
+def _is_person_like_label(label: str) -> bool:
+    normalized = _normalize_label(label)
+    return _has_any_keyword(
+        [normalized],
+        ("person", "human", "character", "man", "woman", "boy", "girl", "body"),
+    )
+
+
+def _refine_person_masks(*, image_path: Path, masks: list, boxes: list, settings: Settings, segmentation_mask_cls) -> tuple[list, dict[int, float]]:
+    if not settings.person_refinement_enabled:
+        return masks, {}
+    if not masks or not boxes:
+        return masks, {}
+
+    targets: list[tuple[int, tuple[int, int, int, int]]] = []
+    for idx, (mask_item, box) in enumerate(zip(masks, boxes)):
+        if not _is_person_like_label(mask_item.label):
+            continue
+        targets.append((idx, tuple(int(v) for v in box.box)))
+
+    if not targets:
+        return masks, {}
+
+    try:
+        from semantic_layer_separation.refiners.person_refiner import PersonMaskRefiner
+
+        refiner = PersonMaskRefiner(
+            score_threshold=settings.person_refinement_score_threshold,
+            iou_threshold=settings.person_refinement_iou_threshold,
+            max_instances=settings.person_refinement_max_instances,
+        )
+        refined = refiner.refine(image_path=image_path, target_boxes=targets)
+    except Exception as exc:
+        print(
+            f"[semantic-layer-separation] Person refinement skipped due to initialization or runtime error: {exc}",
+            file=sys.stderr,
+        )
+        return masks, {}
+
+    if not refined:
+        return masks, {}
+
+    updated_masks = list(masks)
+    refinement_scores: dict[int, float] = {}
+    for idx, result in refined.items():
+        if idx < 0 or idx >= len(updated_masks):
+            continue
+        updated_masks[idx] = segmentation_mask_cls(label=updated_masks[idx].label, mask=np.asarray(result.mask, dtype=bool))
+        refinement_scores[idx] = float(result.score)
+    return updated_masks, refinement_scores
+
+
 def _adjust_box(
     box: tuple[int, int, int, int],
     *,
@@ -400,11 +464,12 @@ def _refine_masks_with_quality_gate(*, image_path: Path, masks: list, boxes: lis
     return refined
 
 
-def _build_primary_layer_metadata(masks: list, boxes: list) -> list[dict]:
+def _build_primary_layer_metadata(masks: list, boxes: list, person_refinement_scores: dict[int, float] | None = None) -> list[dict]:
+    refined_scores = person_refinement_scores or {}
     metadata: list[dict] = []
     used_box_indices: set[int] = set()
 
-    for mask_item in masks:
+    for mask_position, mask_item in enumerate(masks):
         normalized_mask_label = _normalize_label(mask_item.label)
         matched_index = None
         for box_index, box in enumerate(boxes):
@@ -417,10 +482,15 @@ def _build_primary_layer_metadata(masks: list, boxes: list) -> list[dict]:
         if matched_index is not None:
             used_box_indices.add(matched_index)
             matched_box = boxes[matched_index]
+            source = "detector_segmenter"
+            confidence: float | None = float(matched_box.score)
+            if mask_position in refined_scores:
+                source = "person_refiner"
+                confidence = float(refined_scores[mask_position])
             metadata.append(
                 {
-                    "source": "detector_segmenter",
-                    "confidence": float(matched_box.score),
+                    "source": source,
+                    "confidence": confidence,
                     "order_hint": matched_index + 1,
                     "box": [int(v) for v in matched_box.box],
                 }

@@ -47,6 +47,13 @@ def validate_config(settings) -> Tuple[bool, list[str]]:
             f"nms_iou={settings.detection_nms_iou_threshold}, "
             f"max_per_label={settings.detection_max_per_label}"
         )
+        messages.append(
+            "✅ Person refinement: "
+            f"enabled={settings.person_refinement_enabled}, "
+            f"score_threshold={settings.person_refinement_score_threshold}, "
+            f"iou_threshold={settings.person_refinement_iou_threshold}, "
+            f"max_instances={settings.person_refinement_max_instances}"
+        )
         messages.append(f"✅ Planning max targets: {settings.planning_max_targets}")
         messages.append(
             "✅ Background residual: "

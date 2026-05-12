@@ -14,7 +14,8 @@
 1. **Azure OpenAI (GPT-5.4)**: 画像から論理的なセマンティック要素を抽出
 2. **Grounding DINO**: テキスト条件付き物体検知で各要素の位置（BBox）を特定
 3. **SAM 2 (or SimpleBox)**: BBox からマスクを生成（SAM 2 未設定時は矩形マスク）
-4. **PNG 出力**: 各レイヤーの mask、cutout、overlay を保存、`layers.json` で追跡
+4. **Person Refinement (optional)**: 人物系ラベルを Mask R-CNN で再マスク補正
+5. **PNG 出力**: 各レイヤーの mask、cutout、overlay を保存、`layers.json` で追跡
 
 ## プロジェクト構成
 
@@ -128,7 +129,7 @@ semantic-layer-viewer
 
 加えて、次の任意キーが出力されます（後方互換維持）:
 
-- `source`: レイヤー生成元（`detector_segmenter` / `drawing_completion` / `background_residual` / `manual_correction`）
+- `source`: レイヤー生成元（`detector_segmenter` / `person_refiner` / `drawing_completion` / `background_residual` / `manual_correction`）
 - `confidence`: 検出信頼度（推定不可のレイヤーでは `null`）
 - `order_hint`: 検出順ベースの順序ヒント（推定不可では `null`）
 - `box`: 検出BBox `[x0, y0, x1, y1]`（非検出レイヤーでは `null`）
@@ -151,6 +152,7 @@ Viewer 補正を実行すると、同一出力ディレクトリに `corrections
 - **SAM 2 は未設定でも動作**: 未設定の場合は `SimpleBoxSegmenter` が矩形マスクを生成
 - **Grounding DINO はすぐに使える**: `IDEA-Research/grounding-dino-base` から自動ダウンロード
 - **品質調整パラメータ**: `.env` で `PLANNING_MAX_TARGETS`、`DETECTION_BOX_THRESHOLD`、`DETECTION_TEXT_THRESHOLD`、`DETECTION_NMS_IOU_THRESHOLD`、`DETECTION_MAX_PER_LABEL`、`BACKGROUND_RESIDUAL_ENABLED`、`BACKGROUND_RESIDUAL_MIN_AREA_RATIO`、`BACKGROUND_RESIDUAL_LABEL`、`DRAWING_COMPLETION_*` を調整可能
+- **人物補正ステージ**: `.env` で `PERSON_REFINEMENT_ENABLED`、`PERSON_REFINEMENT_SCORE_THRESHOLD`、`PERSON_REFINEMENT_IOU_THRESHOLD`、`PERSON_REFINEMENT_MAX_INSTANCES` を調整可能
 - **Planning ラベル正規化**: LLM出力は同義語統合・snake_case正規化を行い、重複/揺れを抑制
 - **2段階検出**: Recall重視（低閾値）→Precision重視（既定閾値）を統合して取りこぼしを削減
 - **マスク品質ゲート**: 面積比/ボックス充填率/境界接触率で低品質マスクを判定し、box拡縮で再推論
