@@ -8,6 +8,7 @@
 ## 技術ドキュメント
 
 - [Technical Architecture](docs/technical-architecture.md)
+- [Production Process Decomposition Specification](docs/production-process-decomposition-spec.md)
 
 ## パイプライン
 
